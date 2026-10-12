@@ -1,5 +1,55 @@
 # Changelog
 
+## 0.3.0 (2026-10-13)
+
+Trust and evidence on the Zanii packages; everything is opt-in and verifies offline.
+
+- **Keys.** `identity` seals both private keys at rest (`zanii.kms`, scrypt +
+  AES-256-GCM, `ZANII_EVOLVE_IDENTITY_PASSPHRASE`) and refuses to write them
+  unencrypted without `--plaintext`. `--pq` adds an ML-DSA-65 key; certificates
+  are then dual-signed Ed25519 + post-quantum (`zanii.pq`). `rotate-identity`
+  continues the receipt chain on a new key through an owner-signed succession
+  (`zanii.succession`); after a compromise the old delegation is revoked and
+  `verify-receipts --revocations` rejects what it signed.
+- **Certificate schema 3.** Each field is committed with its own salt
+  (`zanii.redact`) and the receipt signs digest and commitment together:
+  `report --public` writes a view that proves chosen fields and reveals nothing
+  else. A certified gain is receipted on `evolve.report.gain`. The certificate
+  names the domain's signed rulebook and commits to a Merkle manifest of the
+  exact tasks its cycle trained on (`zanii.train`).
+- **Ledger anchoring.** With `ZANII_LEDGER_URL` (and `ZANII_API_KEY` or
+  `ZANII_API_KEY_FILE`) the certificate receipt is recorded on a Zanii ledger;
+  `verify-report --ledger` proves inclusion. `ledger-check` audits the ledger
+  once and `watch` proves on every tick that it only grew (`zanii.monitor`).
+- **`anchor-identity`** records the identity's post-quantum key binding on the ledger
+  (`zanii.pq` transition), built directly because zanii 0.25.1's `record()` encodes
+  payloads differently from `pq.verify_transition`; `--check` re-verifies it offline.
+- **Rulebook.** `constitution sign | check`: a domain's rules as a signed,
+  content-addressed document (`zanii.constitution`).
+- **Live evidence.** `zanii_evolve.live.SessionRecorder` signs a receipt for each
+  action of a session, stamped with the harness that ran (`zanii.attest`) and the
+  rulebook (`manifest_hash`), with one-line hooks for LangChain, the OpenAI Agents
+  SDK, CrewAI and plain tool maps (`zanii.connectors`). The client uploads them
+  with the outcome; the server verifies them first and, with an identity, signs a
+  decision receipt per session (`zanii.decisions`). The rollout also rolls back a
+  canary that breaks the rulebook or drifts from stable (`zanii.sentinel`), even
+  when it reports success. `audit-rollout` re-checks all of it.
+- **Provable memory.** `ZANII_EVOLVE_PROVABLE_MEMORY=1` hash-chains every stored
+  lesson (`zanii.memory`); `verify-memory` shows any lesson edited, deleted or
+  inserted outside the chain.
+- **Client data.** `data prove | verify` proves a record in or out of a
+  certificate's training set; `data forget` deletes it and signs a deletion
+  attestation (`zanii.retention`).
+- **Business.** `cv` (signed AgentCV of published certificates), `risk-profile`
+  (`zanii.insurance` underwriting facts), `sla create | sign | assess`
+  (`zanii.sla`, assessed from the receipt chain), `escrow create | sign | check |
+  release` (`zanii.escrow`: pay per certified gain, released only against a
+  ledger-proven `evolve.report.gain` receipt) and `audit` (one auditor's report,
+  with `zanii.compliance` over a ledger bundle).
+- Extras `pq`, `langchain`, `openai-agents`, `crewai`. The `skills/zanii` docs now
+  link to the Zanii documentation instead of files that are not in this repo.
+- Garbled em dashes in the brief harness template fixed.
+
 ## 0.2.2 (2026-10-13)
 
 - **`zanii_evolve.client`**, a rollout client for any domain, standard library

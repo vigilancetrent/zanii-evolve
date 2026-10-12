@@ -1,7 +1,7 @@
 # Zanii — optional ecosystem packages
 
 Install only what a task needs. TS on npm; Python modules ship inside `zanii` (0.25.1).
-All packages below are **published** — exact per-package versions live in `docs/PUBLISHING.md` (the registry). 60 optional npm packages: the five ecosystem
+All packages below are **published** — exact per-package versions are in the [Zanii documentation](https://ledger.zanii.agency/docs). 60 optional npm packages: the five ecosystem
 (`ai,webhooks,testing,monitor,react`), the ten standalone, four framework/privacy
 (`langchain,openai-agents,retention,redact`), three standards-landing
 (`a2a-directory,x402,erc8004`), four UAE-compliance
@@ -513,7 +513,7 @@ algorithm accountable. TS + Python parity.
   `prev` hash-chain contiguity (a suppressed receipt = HIGH `chain-gap` finding) and `buildBaseline`
   **throws** on a failed delegation chain instead of silently weakening detection.
 
-See also **`docs/CLAIMS.md`** — the ecosystem-wide claims ladder (claim → mechanism → package →
+See also the claims ladder in the [Zanii documentation](https://ledger.zanii.agency/docs) — the ecosystem-wide claims ladder (claim → mechanism → package →
 where it stops), the purpose-binding convention (`data.<class>.<op>` via `scopesAllow`, zero new
 code), and the standing "Base carries the trust claim, the Zanii L1 does not" rule.
 

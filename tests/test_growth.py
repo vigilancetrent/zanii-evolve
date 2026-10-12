@@ -459,6 +459,10 @@ def test_cli_identity_never_overwrites_keys(tmp_path, monkeypatch):
     spec = importlib.util.spec_from_file_location("ze_cli3", ROOT / "zanii_evolve.py")
     cli = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(cli)
+    monkeypatch.delenv("ZANII_EVOLVE_IDENTITY_PASSPHRASE", raising=False)
+    with pytest.raises(SystemExit, match="PASSPHRASE"):          # no unencrypted keys by default
+        cli.make_identity(tmp_path / "keys", "2031-01-01T00:00:00Z")
+    monkeypatch.setenv("ZANII_EVOLVE_IDENTITY_PASSPHRASE", "pw")
     cli.make_identity(tmp_path / "keys", "2031-01-01T00:00:00Z")
     ident = R.load_identity(str(tmp_path / "keys" / "identity.json"))
     owner = json.loads((tmp_path / "keys" / "owner.json").read_text())

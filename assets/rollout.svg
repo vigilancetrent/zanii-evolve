@@ -1,0 +1,78 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="460" viewBox="0 0 1200 460" role="img" aria-labelledby="t d">
+  <title id="t">How a certified harness reaches live traffic</title>
+  <desc id="d">Live failures feed watch; a certified gain is published as a canary that serves growing shares of sessions. Each tick two gates check it: an always-valid outcome test and a behaviour check of signed session receipts. Harm rolls back and resets the branch; passing every stage promotes.</desc>
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M0 0L10 5L0 10z" fill="#475569"/>
+    </marker>
+    <marker id="r" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M0 0L10 5L0 10z" fill="#B91C1C"/>
+    </marker>
+    <style>
+      text { font-family: Inter, "Segoe UI", Helvetica, Arial, sans-serif; }
+      .h { font-size: 15px; font-weight: 600; fill: #0F172A; }
+      .s { font-size: 12.5px; fill: #475569; }
+      .lbl { font-size: 12px; font-weight: 600; fill: #64748B; letter-spacing: 1px; }
+      .box { fill: #FFFFFF; stroke: #CBD5E1; stroke-width: 1.5; }
+      .key { fill: #F0FDFA; stroke: #14B8A6; stroke-width: 1.5; }
+      .bad { fill: #FEF2F2; stroke: #FCA5A5; stroke-width: 1.5; }
+      .ln { stroke: #475569; stroke-width: 1.5; fill: none; marker-end: url(#a); }
+      .rb { stroke: #B91C1C; stroke-width: 1.5; fill: none; stroke-dasharray: 5 4; marker-end: url(#r); }
+      .bar { fill: #E2E8F0; }
+      .fill { fill: #14B8A6; }
+    </style>
+  </defs>
+  <rect width="1200" height="460" rx="18" fill="#F8FAFC"/>
+
+  <!-- source -->
+  <text x="40" y="44" class="lbl">LIVE AGENTS</text>
+  <rect x="40" y="60" width="210" height="62" rx="10" class="box"/>
+  <text x="56" y="86" class="h">Sessions</text><text x="56" y="106" class="s">failures + signed receipts</text>
+  <rect x="40" y="140" width="210" height="62" rx="10" class="box"/>
+  <text x="56" y="166" class="h">watch</text><text x="56" y="186" class="s">ingest, cycle, certify</text>
+  <path d="M145 122V136" class="ln"/>
+
+  <!-- publish -->
+  <rect x="40" y="220" width="210" height="62" rx="10" class="key"/>
+  <text x="56" y="246" class="h">Certified gain</text><text x="56" y="266" class="s">published as the canary</text>
+  <path d="M145 202V216" class="ln"/>
+  <path d="M250 251H306" class="ln"/>
+
+  <!-- stages -->
+  <text x="310" y="44" class="lbl">STAGED ROLLOUT (SHARE OF SESSIONS)</text>
+  <rect x="310" y="60" width="520" height="222" rx="14" fill="#FFFFFF" stroke="#94A3B8" stroke-dasharray="5 4"/>
+  <text x="334" y="96" class="h">Stage 1</text><rect x="420" y="84" width="340" height="16" rx="8" class="bar"/><rect x="420" y="84" width="17" height="16" rx="8" class="fill"/><text x="808" y="97" class="s" text-anchor="end">5%</text>
+  <text x="334" y="140" class="h">Stage 2</text><rect x="420" y="128" width="340" height="16" rx="8" class="bar"/><rect x="420" y="128" width="85" height="16" rx="8" class="fill"/><text x="808" y="141" class="s" text-anchor="end">25%</text>
+  <text x="334" y="184" class="h">Stage 3</text><rect x="420" y="172" width="340" height="16" rx="8" class="bar"/><rect x="420" y="172" width="170" height="16" rx="8" class="fill"/><text x="808" y="185" class="s" text-anchor="end">50%</text>
+  <text x="334" y="222" class="s">Sticky per session (GET /rollout/assign); outcomes + receipts via POST /rollout/outcome.</text>
+  <text x="334" y="246" class="s">A stage passes after min-requests canary outcomes with neither gate firing.</text>
+  <text x="334" y="266" class="s">The stable harness keeps serving the rest, so every stage has a control arm.</text>
+
+  <!-- gates -->
+  <text x="870" y="44" class="lbl">CHECKED EVERY TICK</text>
+  <rect x="870" y="60" width="290" height="62" rx="10" class="box"/>
+  <text x="886" y="86" class="h">Outcome gate</text><text x="886" y="106" class="s">always-valid test on where failures land</text>
+  <rect x="870" y="140" width="290" height="62" rx="10" class="box"/>
+  <text x="886" y="166" class="h">Behaviour gate</text><text x="886" y="186" class="s">rulebook violations, drift from stable</text>
+  <path d="M830 120H866" class="ln"/>
+
+  <!-- results -->
+  <rect x="870" y="220" width="135" height="62" rx="10" class="key"/>
+  <text x="886" y="246" class="h">Promote</text><text x="886" y="266" class="s">canary is stable</text>
+  <rect x="1025" y="220" width="135" height="62" rx="10" class="bad"/>
+  <text x="1041" y="246" class="h">Roll back</text><text x="1041" y="266" class="s">branch reset</text>
+  <path d="M937 202V216" class="ln"/>
+  <path d="M1092 202V216" class="rb"/>
+
+  <!-- evidence strip -->
+  <text x="40" y="330" class="lbl">EVIDENCE LEFT BEHIND</text>
+  <rect x="40" y="346" width="270" height="58" rx="10" class="box"/>
+  <text x="56" y="370" class="h">Session receipts</text><text x="56" y="390" class="s">which harness ran, which rulebook</text>
+  <rect x="330" y="346" width="270" height="58" rx="10" class="box"/>
+  <text x="346" y="370" class="h">Signed decisions</text><text x="346" y="390" class="s">which arm served each session</text>
+  <rect x="620" y="346" width="270" height="58" rx="10" class="box"/>
+  <text x="636" y="370" class="h">watch.json</text><text x="636" y="390" class="s">every verdict, with its evidence</text>
+  <rect x="910" y="346" width="250" height="58" rx="10" class="box"/>
+  <text x="926" y="370" class="h">audit-rollout</text><text x="926" y="390" class="s">re-checks all of it offline</text>
+  <text x="40" y="436" class="s">A canary that reports success but breaks the rules, or behaves unlike stable, is rolled back anyway.</text>
+</svg>

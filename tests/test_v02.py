@@ -158,7 +158,7 @@ def test_the_certificate_reports_confirmations_shrinkage_and_the_judge(tmp_path)
                       "confirmed": False}) + "\n")
     JC.record(d, {"model": "claude-sonnet-5-5", "kappa": 0.81, "agreement": 0.92, "n": 60})
     cert = R.build(d, key="k1")
-    assert cert["schema"] == "zanii-evolve-certificate/2"
+    assert cert["schema"] == "zanii-evolve-certificate/3"
     assert cert["selection_shrinkage"] == pytest.approx(0.08)
     assert [c["confirmed"] for c in cert["confirmations"]] == [True, False]
     assert cert["judge"]["kappa"] == 0.81 and cert["judge"]["model"] == "claude-sonnet-5-5"

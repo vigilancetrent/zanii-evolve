@@ -191,6 +191,11 @@ def _failed(fb) -> bool:
     return str(fb or "").strip().lower() in _BAD
 
 
+def trace_task_id(text: str) -> str:
+    """The task id a production input becomes: the same input always maps to it."""
+    return "tr-" + hashlib.sha256(redact(text.strip())[:8000].lower().encode()).hexdigest()[:10]
+
+
 def from_traces(records: list[dict], rubric: list[str], limit: int = 200) -> list[dict]:
     """Production records -> brief tasks. Failures (negative feedback) first,
     duplicates (same redacted input) dropped, outputs never copied into a task."""
@@ -201,13 +206,13 @@ def from_traces(records: list[dict], rubric: list[str], limit: int = 200) -> lis
         text = next((_get(rec, k) for k in _INPUT_KEYS if _get(rec, k)), None)
         if not isinstance(text, str) or not text.strip():
             continue
+        tid = trace_task_id(text)
         text = redact(text.strip())[:8000]
-        h = hashlib.sha256(text.lower().encode()).hexdigest()[:10]
-        if h in seen:
+        if tid in seen:
             continue
-        seen.add(h)
+        seen.add(tid)
         fb = _get(rec, "feedback")
-        task = {"id": f"tr-{h}", "split": None, "kind": str(_get(rec, "kind") or "production request"),
+        task = {"id": tid, "split": None, "kind": str(_get(rec, "kind") or "production request"),
                 "brief": text, "source": "trace",
                 "rubric": [{"criterion": c} for c in rubric],
                 "notes": {"feedback": fb}}

@@ -93,8 +93,8 @@ def assign(st: dict, key: str) -> dict:
     return {"arm": "stable", "commit": st["stable"], "stage": st["stage"]}
 
 
-def record(run_dir: Path, st: dict, key: str, commit: str, ok: bool) -> dict:
-    """Append one live outcome for the running rollout."""
+def check_outcome(st: dict, key: str, commit: str, ok: bool) -> str:
+    """The arm an outcome belongs to; raises when it cannot be counted."""
     if st["status"] != "running":
         raise RuntimeError(f"no running rollout (status {st['status']})")
     if not isinstance(ok, bool) or not isinstance(key, str) or not 0 < len(key) <= 200:
@@ -104,6 +104,12 @@ def record(run_dir: Path, st: dict, key: str, commit: str, ok: bool) -> dict:
         raise ValueError("commit is neither arm of the running rollout")
     if assign(st, key)["arm"] != arm:          # a key reports only for the arm it was served
         raise ValueError("this key is not assigned to that arm at the current stage")
+    return arm
+
+
+def record(run_dir: Path, st: dict, key: str, commit: str, ok: bool) -> dict:
+    """Append one live outcome for the running rollout."""
+    arm = check_outcome(st, key, commit, ok)
     row = {"rollout": st["id"], "stage": st["stage"], "arm": arm, "key": key, "ok": ok,
            "at": now()}
     with open(Path(run_dir) / OUTCOMES, "a", encoding="utf-8") as f:
@@ -151,8 +157,20 @@ def e_value(k: int, m: int, r: float, grid: int = 4000) -> float:
     return math.exp(min(700.0, log_mean - null))
 
 
-def decide(run_dir: Path, st: dict, stall_hours: float) -> tuple[str, dict]:
-    """("rollback" | "advance" | "promote" | "stalled" | "wait", evidence)."""
+def decide(run_dir: Path, st: dict, stall_hours: float,
+           constitution: dict | None = None) -> tuple[str, dict]:
+    """("rollback" | "advance" | "promote" | "stalled" | "wait", evidence).
+
+    Two gates, either rolls back: the outcome test below, and, when agents upload
+    signed session receipts, their behaviour (zanii_evolve.live.behaviour): an
+    action the rulebook forbids, or high-severity drift from how stable behaves."""
+    if (Path(run_dir) / "live_receipts.jsonl").exists():
+        from . import live
+        b = live.behaviour(run_dir, st, constitution)
+        if b["harm"]:
+            return "rollback", {"stage": st["stage"], "share": st["shares"][st["stage"]],
+                                "reason": "behaviour", "governance": b["governance"],
+                                "findings": b["findings"], "receipts": b["receipts"]}
     c = counts(run_dir, st)
     r = st["shares"][st["stage"]]
     k = c["canary"]["failures"]

@@ -32,6 +32,7 @@ Maintained by [zaniiai agency](https://github.com/zaniiai).
 - [Bring your own tasks](#bring-your-own-tasks)
 - [Continuous evolution](#continuous-evolution)
 - [Certificates, signing and the registry](#certificates-signing-and-the-registry)
+- [Trust and evidence](#trust-and-evidence)
 - [Memory](#memory)
 - [Dashboard and HTTP API](#dashboard-and-http-api)
 - [Configuration](#configuration)
@@ -253,6 +254,10 @@ the receipt chain, the judge record and memory carry over. A gain that clears th
 noise band is evaluated on the held-out split, certified, signed (with
 `ZANII_EVOLVE_IDENTITY`) and published. A gain inside the noise band ships nothing.
 
+<p align="center">
+  <img src="https://raw.githubusercontent.com/vigilancetrent/zanii-evolve/main/assets/rollout.svg" width="100%" alt="A certified gain is rolled out to growing shares of sessions; an outcome gate and a behaviour gate decide each tick between promote and roll back">
+</p>
+
 **Live rollout.** With `--rollout`, a published harness becomes a canary that
 serves each listed share of sessions in turn, next to the stable harness it
 would replace. Your agent runtime asks which harness a session gets, and reports
@@ -286,6 +291,13 @@ propagates. The client never breaks a session: if the server can't be reached,
 it serves the last stable commit it saw (or `default=`), that session is left
 out of the test, and outcomes it could not deliver are counted in `r.dropped`,
 never raised. Other languages call the same two endpoints.
+
+Give the client the agent's own Zanii identity (`identity=load_identity(path)`)
+and every session also gets `s.recorder`, which signs a receipt for each action.
+One line hooks it into your framework: `s.recorder.wrap_tools(tools)`,
+`s.recorder.langchain_callbacks()`, `s.recorder.openai_agents_hooks()` or
+`s.recorder.instrument_crew(crew)`. The receipts travel with the outcome; see
+[Live evidence](#live-evidence).
 
 The harness for a commit is also served at
 `/api/registry/<domain>/<commit>/harness.tar.gz` with its `manifest.json`. Every
@@ -351,7 +363,8 @@ Signing comes in two strengths:
   secret and no network call.
 
 ```bash
-python zanii_evolve.py identity --out keys/                 # owner.json (keep offline) + identity.json
+export ZANII_EVOLVE_IDENTITY_PASSPHRASE=...                  # keys are sealed at rest (scrypt + AES-GCM)
+python zanii_evolve.py identity --out keys/ [--pq]          # owner.json (keep offline) + identity.json
 export ZANII_EVOLVE_IDENTITY=keys/identity.json
 python zanii_evolve.py --domain acme report --out cert
 python zanii_evolve.py verify-report cert.json --owner did:key:z6Mk...
@@ -367,6 +380,125 @@ To optimize for cost instead of score, set `"objective": "cost"` in the domain's
 among the candidates that pass, the cheapest wins. Together with a new
 `ZANII_EVOLVE_POLICY_MODEL` and a fresh `baseline`, this moves a harness to a
 cheaper model without losing quality.
+
+## Trust and evidence
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/vigilancetrent/zanii-evolve/main/assets/trust.svg" width="100%" alt="Five layers of evidence: keys, certificates, ledger, live sessions, data and business, each with the Zanii packages it uses and what it proves">
+</p>
+
+Every artifact below is built on the [Zanii](https://ledger.zanii.agency/docs)
+packages (`pip install "zanii-evolve[provable]"`), verifies offline, and is
+opt-in: without an identity, nothing changes.
+
+### Keys
+
+`identity` refuses to write unencrypted keys: with
+`ZANII_EVOLVE_IDENTITY_PASSPHRASE` set, both private keys are sealed with
+scrypt and AES-256-GCM (`zanii.kms`) and opened only in memory. `--pq` adds an
+ML-DSA-65 key bound to the `did:key`, and every certificate is then dual-signed,
+Ed25519 and post-quantum (`pip install "zanii-evolve[pq]"`); both signatures
+must verify. `anchor-identity` records the post-quantum key binding on the ledger once,
+so its timestamp proves the binding predates any future Ed25519 break;
+`anchor-identity --check pq_transition.json` re-verifies it offline.
+
+```bash
+python zanii_evolve.py rotate-identity --owner-key keys/owner.json \
+    --identity keys/identity.json --out keys2/ [--reason compromise --compromised-at 2026-10-01T00:00:00Z]
+python zanii_evolve.py --domain acme verify-receipts --owner did:key:z6Mk... \
+    [--revocations keys2/revocations.json]
+```
+
+A rotation is signed by the owner (and countersigned by the old key unless it
+was compromised), so the receipt chain continues across keys. After a
+compromise the old delegation is revoked, and receipts it signed fail
+`verify-receipts --revocations`.
+
+### Certificates others can check
+
+```bash
+python zanii_evolve.py --domain acme report --out cert --public domain,gain,noise_band,gain_exceeds_noise
+python zanii_evolve.py verify-report cert.public.json --owner did:key:z6Mk...
+```
+
+Every field of a signed certificate is also committed with its own salt
+(`zanii.redact`). The public view proves the chosen fields against the signed
+commitment and reveals nothing else: a client sees that the gain is real
+without seeing another client's tasks. A certificate whose gain clears the
+noise band is receipted on its own target, `evolve.report.gain`, so the ledger
+alone can tell a certified gain from any other certificate.
+
+**On a ledger.** With `ZANII_LEDGER_URL` and an ingest key (`ZANII_API_KEY`, or
+`ZANII_API_KEY_FILE` pointing at a file that holds it), the certificate receipt
+is recorded on that Zanii ledger, which fixes its time and order;
+`verify-report --ledger <url>` proves its Merkle inclusion. Run `ledger-check`
+once to audit the ledger's history, and `watch` then proves on every tick that
+the log only grew (`zanii.monitor`); a rewritten log raises `ledger_violation`.
+
+### The rulebook
+
+```bash
+python zanii_evolve.py --domain acme constitution sign       # domains/acme/constitution.json -> signed
+python zanii_evolve.py --domain acme constitution check crm.export.csv
+```
+
+`constitution.json` lists rules (`forbid`, `require_approval`, `allow`) over
+action targets (`crm.export.*`), first match wins. The signed rulebook's hash is
+written into every certificate, live session receipts are stamped with it, and
+editing a rule after signing breaks the signature.
+
+### Live evidence
+
+With session receipts flowing in, the live rollout gains a second gate: a canary
+is rolled back, even when its sessions report success, if it takes an action the
+rulebook forbids or drifts from how stable behaves (`zanii.sentinel`: targets
+stable never touches, rate spikes, and the read, archive, send-outside sequence
+of an exfiltration). Uploaded receipts are verified before an outcome counts,
+and must name the harness the session's arm serves (`zanii.attest`).
+
+With `ZANII_EVOLVE_IDENTITY` set on the server, each outcome also gets a signed
+decision receipt (`zanii.decisions`): which arm served the session, under which
+rollout plan. `audit-rollout` re-checks the decision chain, that every arm
+follows from its plan's share, that two plans never governed at once, and the
+session receipts under the rulebook.
+
+### Client data
+
+```bash
+python zanii_evolve.py data prove --cert cert.json --text "the client's original request" --out proof.json
+python zanii_evolve.py data verify --proof proof.json --cert cert.json
+python zanii_evolve.py --domain acme data forget --text "the client's original request" --out deleted.json
+```
+
+Every certificate commits to a sorted Merkle manifest of the exact tasks its
+cycle trained on (`zanii.train`), so a record can be proven in or out of that
+set against the signed hash. `forget` deletes a record from the task set and
+every run file that names it, then signs a deletion attestation
+(`zanii.retention`) that names the subject only by a salted commitment; the
+client keeps the salt to check it.
+
+### Business artifacts
+
+```bash
+python zanii_evolve.py cv --out cv.json                      # signed AgentCV: every published certificate
+python zanii_evolve.py risk-profile                          # underwriting facts, never a score
+python zanii_evolve.py sla create --client did:key:... --start 2026-11-01T00:00:00Z \
+    --end 2026-12-01T00:00:00Z --min-certificates 2 --price 5000 --out sla.json
+python zanii_evolve.py --domain acme sla assess --file sla.json
+python zanii_evolve.py escrow create --payer did:key:... --amount 5000.00 --deadline 2026-12-31T00:00:00Z --out escrow.json
+python zanii_evolve.py escrow check --file escrow.json --cert cert.json   # needs ZANII_LEDGER_URL
+python zanii_evolve.py --domain acme audit --owner did:key:... --out audit.md
+```
+
+The CV's summary comes from the ledger's own count when certificates are
+anchored there, and is labelled as unattested otherwise. An SLA is assessed
+from the provider's receipt chain, where a hidden certificate breaks the chain
+instead of disappearing. An escrow pays per certified gain: it releases only
+against an `evolve.report.gain` receipt that is Merkle-proven on the ledger, and
+Zanii never holds the funds. `audit` writes one auditor's report over the
+domain's certificates, receipt chains, rulebook, rollouts, client data and,
+with `--memory-dir`, a deployment's memory; `--bundle` appends the ledger's own
+compliance report (`zanii.compliance`).
 
 ## Memory
 
@@ -384,6 +516,12 @@ lessons cannot leak between runs. `mechanisms.TaskMemory` adds a
 recall-before, record-after loop that stores successes as procedures and
 failures as pitfalls. Brief harnesses ship it wired but switched off, so H0 is
 unchanged and the search decides whether it pays.
+
+**Provable memory.** With `ZANII_EVOLVE_PROVABLE_MEMORY=1`, every stored lesson
+also gets a hash-chained `zanii.memory` entry holding a salted commitment to it.
+`verify-memory <state_dir>` then shows any lesson edited, deleted or slipped in
+afterwards, and `s.recorder.attest_memory(state_dir)` signs the chain head into a
+live session, so the whole chain cannot be rewritten to match.
 
 **Lesson packs** are the explicit, opt-in exception. `lessons export` writes a
 run's general lessons after the leakage guard, a task-id screen, PII redaction
@@ -433,6 +571,10 @@ on the command line (`--T`, `--k`, `--m`, `--delta`, `--beta0`, `--beta1`,
 | `ZANII_EVOLVE_POLICY_MODEL`, `ZANII_EVOLVE_JUDGE_MODEL` | brief-domain agent and judge |
 | `ZANII_EVOLVE_SIGNING_KEY` | HMAC key for certificates |
 | `ZANII_EVOLVE_IDENTITY` | identity file for signed receipts |
+| `ZANII_EVOLVE_IDENTITY_PASSPHRASE` | opens sealed identity and owner keys |
+| `ZANII_LEDGER_URL` | Zanii ledger certificates are anchored on and monitored |
+| `ZANII_API_KEY`, `ZANII_API_KEY_FILE` | the ledger ingest key, or a file holding it |
+| `ZANII_EVOLVE_PROVABLE_MEMORY` | `1`: hash-chain every stored lesson |
 | `ZANII_EVOLVE_REGISTRY` | registry location (default `./registry`) |
 | `ZANII_EVOLVE_API_TOKEN` | API control and non-loopback binds |
 | `ZANII_EVOLVE_MEMORY` | `zaniidb` (default) or `jsonl` |
@@ -445,8 +587,9 @@ identity files are ignored by git.
 
 ```
 smoke | baseline | calibrate | round | run | status | readjudicate | reevaluate | heldout
-pareto | report | verify-report | verify-receipts | publish | registry | identity
+pareto | report | verify-report | verify-receipts | publish | registry | identity | rotate-identity
 init-domain | import-tasks | ingest-traces | ingest-blackbox | redteam | judge-agreement | lessons | watch | serve
+constitution | audit-rollout | verify-memory | data | ledger-check | anchor-identity | cv | risk-profile | sla | escrow | audit
 ```
 
 `python zanii_evolve.py --help` lists every option.

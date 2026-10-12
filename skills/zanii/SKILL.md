@@ -31,7 +31,7 @@ payload, so business data never leaves the caller's systems.
 | **Independently monitor** a log (append-only + anchors) | `@zanii/monitor` | `zanii.monitor` (`zanii-monitor` CLI) |
 | **Trust UI** — client-side verifying React components | `@zanii/react` | *(JS only)* |
 
-Fifty-five more optional packages, **published** (per-package versions: `docs/PUBLISHING.md`, the registry;
+Fifty-five more optional packages (sixty with the five above), **published** (per-package versions: the [Zanii documentation](https://ledger.zanii.agency/docs);
 Python parity in `zanii` 0.25.1) — see `reference/ecosystem.md` for signatures:
 
 | Need | npm |

@@ -19,15 +19,19 @@ then judge whether it helps. Dependency-free and defensive: the harness runs
 unattended on every task of the evolve set.
 
 Levers:
-  memory      â€” Memory(): ZaniiDB Agent Memory when installed (hybrid recall,
+  memory      — Memory(): ZaniiDB Agent Memory when installed (hybrid recall,
                 see ZaniiDBMemory), else a JSONL store under ZANII_EVOLVE_STATE_DIR.
                 ENTITY-FREE ONLY (critic + SKILL.md enforce): store general
-                procedures/lessons, never task-specific content â€” the harness
+                procedures/lessons, never task-specific content — the harness
                 is evolved and evaluated on the same tasks, so persisting task
                 data across trials is memorization, not improvement.
-  task memory â€” TaskMemory: before(situation) recall / after(lesson, outcome)
+  task memory — TaskMemory: before(situation) recall / after(lesson, outcome)
                 record loop over Memory(); same entity-free rule.
-  subagent    â€” any extra `complete(...)` call in agent.py (a reviewer, a
+                With ZANII_EVOLVE_PROVABLE_MEMORY=1 (and the zanii package), every
+                stored lesson also gets a hash-chained zanii.memory entry in
+                <state_dir>/memory_chain.jsonl: `zanii_evolve.py verify-memory`
+                then shows a lesson edited, deleted or slipped in afterwards.
+  subagent    — any extra `complete(...)` call in agent.py (a reviewer, a
                 planner); it costs tokens and must pay for itself.
 """
 
@@ -62,6 +66,35 @@ def _state_dir() -> Path:
 
 # crude entity-ish guard for memory writes (defence-in-depth; critic is primary)
 _LEAKY = re.compile(r"expected|gold\s*answer|answer\s*[:=]|rubric|reference\s+answer", re.I)
+
+
+def _record_chain(state_dir: Path, kind: str, note: str, tags: list | None) -> None:
+    """Append a zanii.memory entry for a stored lesson (opt-in, never raises): a
+    salted commitment to the note, hash-linked to the entry before it."""
+    if os.environ.get("ZANII_EVOLVE_PROVABLE_MEMORY") != "1":
+        return
+    try:
+        import time
+
+        from zanii import memory as zmem
+        p = Path(state_dir) / "memory_chain.jsonl"
+        with open(p, "a+", encoding="utf-8") as f:
+            fcntl.flock(f, fcntl.LOCK_EX)
+            f.seek(0)
+            last = None
+            for line in f:
+                try:
+                    last = json.loads(line)
+                except json.JSONDecodeError:
+                    pass
+            e = zmem.append_memory(last["payload"] if last else None, content=note, kind=kind,
+                                   ts=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                                   tags=[str(t) for t in (tags or [])][:6] or None)
+            f.seek(0, os.SEEK_END)
+            f.write(json.dumps({"payload": e["payload"], "salt": e["salt"]}) + "\n")
+            fcntl.flock(f, fcntl.LOCK_UN)
+    except Exception:  # noqa: BLE001 - provenance must never crash the rollout
+        return
 
 
 # ---------------------------------------------------------------- memory ----
@@ -103,6 +136,7 @@ class JsonlMemory:
                 fcntl.flock(f, fcntl.LOCK_UN)
         except Exception:  # noqa: BLE001 - never crash the rollout
             return False
+        _record_chain(self.dir, kind, rec["note"], rec["tags"])
         return True
 
     def read(self, kind: str, match: str | None = None, limit: int = 8) -> list:
@@ -188,10 +222,14 @@ class ZaniiDBMemory(JsonlMemory):
         outcome = next((t for t in (tags or []) if t in ("success", "failure")), None)
         try:
             if outcome:
-                return self._run(self._insert(rec, {"outcome": outcome})) > 0
-            return self._run(self._core.seed([rec])) > 0
+                ok = self._run(self._insert(rec, {"outcome": outcome})) > 0
+            else:
+                ok = self._run(self._core.seed([rec])) > 0
         except Exception:  # noqa: BLE001 - never crash the rollout
             return False
+        if ok:
+            _record_chain(self.dir, kind, rec["content"], tags)
+        return ok
 
     async def _insert(self, rec: dict, metadata: dict) -> int:
         """seed() plus record metadata (seed() takes none): same duplicate
@@ -293,7 +331,7 @@ class TaskMemory:
         if pits:
             parts.append("Pitfalls seen on similar tasks:\n"
                          + "\n".join(f"- {r['note']}" for r in pits))
-        return ("\n\n[MEMORY â€” lessons from prior tasks]\n" + "\n\n".join(parts)) if parts else ""
+        return ("\n\n[MEMORY — lessons from prior tasks]\n" + "\n\n".join(parts)) if parts else ""
 
     def after(self, lesson: str, outcome: str = "success",
               tags: list | None = None) -> bool:

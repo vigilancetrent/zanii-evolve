@@ -29,6 +29,15 @@ whatever you record (a dict of signals, a status string) into True / False.
 The client never breaks a session. If the server can't be reached, `assign`
 returns the last stable commit it saw (or `default`), and outcomes it could not
 deliver are dropped and counted in `r.dropped`, never raised.
+
+Give it the agent's own Zanii identity (`Rollout(..., identity=load_identity(path))`,
+needs `zanii-evolve[provable]`) and each session also gets `s.recorder`, which
+signs a receipt for every action (zanii_evolve.live.SessionRecorder). Hook it into
+your framework in one line: `s.recorder.wrap_tools(tools)`,
+`s.recorder.langchain_callbacks()`, `s.recorder.openai_agents_hooks()` or
+`s.recorder.instrument_crew(crew)`. The receipts travel with the outcome, so the
+rollout also rolls back a canary that breaks the domain's rules or behaves unlike
+stable, even when it reports success.
 """
 
 from __future__ import annotations
@@ -50,7 +59,7 @@ class Rollout:
     def __init__(self, base_url: str, domain: str, token: str | None = None, *,
                  success: Callable[[Any], bool] | None = None, threshold: float = 0.5,
                  default: str | None = None, timeout: float = 2.0, retries: int = 2,
-                 cache_size: int = 10_000):
+                 cache_size: int = 10_000, identity: dict | None = None):
         if urllib.parse.urlparse(base_url).scheme not in ("http", "https"):
             raise ValueError("base_url must be an http:// or https:// URL")
         self.base = base_url.rstrip("/")
@@ -63,6 +72,7 @@ class Rollout:
         self.retries = retries
         self.stable: str | None = None          # last stable commit the server named
         self.dropped = 0                        # outcomes that could not be delivered
+        self.identity = identity                # the agent's own Zanii identity, optional
         self._seen: OrderedDict[str, dict] = OrderedDict()   # key -> assignment, bounded
         self._cache_size = cache_size
         self._lock = threading.Lock()
@@ -123,7 +133,13 @@ class Rollout:
         raise TypeError("outcome is not a bool or a score: pass Rollout(success=fn) "
                         "to say what success means for it")
 
-    def report(self, key: str, outcome: Any, commit: str | None = None) -> bool:
+    def assignment(self, key: str) -> dict | None:
+        """The server's full answer for a key assigned in this process."""
+        with self._lock:
+            return self._seen.get(str(key))
+
+    def report(self, key: str, outcome: Any, commit: str | None = None,
+               receipts: list[dict] | None = None) -> bool:
         """Report how session `key` went. Returns whether it was delivered; never
         raises for transport or a rollout that has ended."""
         key = str(key)
@@ -134,7 +150,10 @@ class Rollout:
         if not commit or seen is None and commit in (self.stable, self.default):
             return False                        # a fallback session is not part of the test
         try:
-            self._call("POST", self._api("/outcome"), {"key": key, "commit": commit, "ok": good})
+            body = {"key": key, "commit": commit, "ok": good}
+            if receipts:
+                body["receipts"] = receipts
+            self._call("POST", self._api("/outcome"), body)
             return True
         except (urllib.error.URLError, OSError, ValueError):
             self.dropped += 1                   # ended rollout (409), stale stage (400), network
@@ -180,14 +199,24 @@ class _Session:
         self.rollout, self.key = rollout, key
         self.commit: str | None = None
         self.outcome: Any = None
+        self.recorder = None                    # set when the Rollout has an identity
 
     def __enter__(self) -> _Session:
         self.commit = self.rollout.assign(self.key)
+        if self.rollout.identity and self.commit:
+            import hashlib
+
+            from zanii_evolve.live import SessionRecorder
+            a = self.rollout.assignment(self.key) or {}
+            self.recorder = SessionRecorder(
+                self.rollout.identity, self.commit, a.get("harness_sha256"),
+                a.get("constitution"), hashlib.sha256(self.key.encode()).hexdigest())
         return self
 
     def __exit__(self, exc_type, exc, tb) -> bool:
+        receipts = self.recorder.receipts if self.recorder else None
         if exc_type is not None:
-            self.rollout.report(self.key, False, self.commit)   # a crash is a failure
+            self.rollout.report(self.key, False, self.commit, receipts)   # a crash is a failure
         elif self.outcome is not None:
-            self.rollout.report(self.key, self.outcome, self.commit)
+            self.rollout.report(self.key, self.outcome, self.commit, receipts)
         return False                            # never swallow your exception

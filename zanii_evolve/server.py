@@ -30,7 +30,10 @@ Read endpoints (JSON unless noted):
 Control endpoints (Authorization: Bearer $ZANII_EVOLVE_API_TOKEN):
     POST /api/domains/<d>/start  {"cmd": "baseline" | "run" | "smoke"}
     POST /api/domains/<d>/stop   touches runs/<d>/STOP (stops after the round)
-    POST /api/domains/<d>/rollout/outcome  {"key", "commit", "ok": bool} one live outcome
+    POST /api/domains/<d>/rollout/outcome  {"key", "commit", "ok": bool, "receipts"?: [...]}
+                                 one live outcome; signed session receipts (zanii_evolve.live)
+                                 are verified before anything is counted, and with
+                                 ZANII_EVOLVE_IDENTITY set each outcome gets a signed decision
 Live rollout (see zanii_evolve.rollout; read auth as for every GET):
     GET  /api/domains/<d>/rollout              state + current-stage counts
     GET  /api/domains/<d>/rollout/assign?key=K harness commit for session K (sticky)
@@ -108,6 +111,11 @@ class State:
         self.token = token
         self.procs: dict[str, subprocess.Popen] = {}
         self.lock = threading.Lock()
+        from zanii_evolve.report import load_identity
+        try:                                   # signs rollout decisions when configured
+            self.identity = load_identity()
+        except (OSError, ValueError, RuntimeError) as e:
+            raise SystemExit(f"ZANII_EVOLVE_IDENTITY: {e}") from e
 
     # ---- discovery ---------------------------------------------------------
     def domains(self) -> list[str]:
@@ -399,7 +407,15 @@ def make_handler(state: State, allowed_hosts: set[str] | None, read_auth: bool):
                 key = (parse_qs(urlparse(self.path).query).get("key") or [""])[0]
                 if not 0 < len(key) <= 200:
                     return self._send(400, {"error": "key (1-200 chars) is required"})
-                return self._send(200, RO.assign(st, key))
+                a = RO.assign(st, key)
+                try:                           # what the agent stamps on its session receipts
+                    from zanii_evolve import live
+                    from zanii_evolve.report import constitution_ref
+                    a["constitution"] = constitution_ref(name)
+                    a["harness_sha256"] = live.manifest_hash_for(run_dir, a["commit"])
+                except (RuntimeError, ValueError):
+                    pass                       # zanii not installed: plain routing still works
+                return self._send(200, a)
             if rest:
                 return self._send(404, {"error": "not found"})
             view = {k: v for k, v in st.items() if k != "history"}
@@ -409,17 +425,25 @@ def make_handler(state: State, allowed_hosts: set[str] | None, read_auth: bool):
 
         def _rollout_outcome(self, name: str):
             n = int(self.headers.get("Content-Length") or 0)
-            if n > 10_000:
-                return self._send(413, {"error": "body too large"})
+            if n > 2_000_000:
+                return self._send(413, {"error": "body too large (max 2 MB)"})
             body = json.loads(self.rfile.read(n) or b"{}")
             run_dir = state.runs / name
-            with state.lock:                   # one writer at a time on the outcomes file
+            key, commit, ok = body.get("key"), str(body.get("commit", "")), body.get("ok")
+            with state.lock:                   # one writer at a time on the outcome files
                 st = RO.load(run_dir)
                 if st is None:
                     raise LookupError(f"no rollout for {name}")
-                row = RO.record(run_dir, st, body.get("key"), str(body.get("commit", "")),
-                                body.get("ok"))
-            return self._send(200, row)
+                arm = RO.check_outcome(st, key, commit, ok)
+                stored = 0
+                if body.get("receipts"):       # verified first: a bad upload counts nothing
+                    from zanii_evolve import live
+                    stored = live.accept_receipts(run_dir, st, key, arm, commit, body["receipts"])
+                row = RO.record(run_dir, st, key, commit, ok)
+                if state.identity:
+                    from zanii_evolve import live
+                    live.record_decision(run_dir, st, key, arm, commit, ok, state.identity)
+            return self._send(200, {**row, "receipts": stored})
 
         def _create_domain(self):
             n = int(self.headers.get("Content-Length") or 0)

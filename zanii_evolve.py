@@ -134,13 +134,100 @@ def redteam(name: str, n: int, seed: int) -> None:
           f"`--domain {name} heldout --label rt --set redteam`")
 
 
-def make_identity(out: Path, exp: str) -> None:
+def _emit(obj, out: str | None) -> None:
+    text = json.dumps(obj, indent=1, ensure_ascii=False)
+    if out:
+        Path(out).write_text(text, encoding="utf-8")
+        print(f"wrote {out}", file=sys.stderr)
+    else:
+        print(text)
+
+
+def _load_json(path: str):
+    try:
+        return json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        sys.exit(f"{path}: {e}")
+
+
+def business(args) -> None:
+    """cv, risk-profile, sla create/sign, escrow: signed with ZANII_EVOLVE_IDENTITY."""
+    from zanii_evolve import trust as T
+    from zanii_evolve.registry import default_root
+    from zanii_evolve.report import load_identity
+    try:
+        ident = load_identity()
+    except (RuntimeError, ValueError, OSError) as e:
+        sys.exit(str(e))
+    if not ident:
+        sys.exit("set ZANII_EVOLVE_IDENTITY: this is signed")
+    ledger = os.environ.get("ZANII_LEDGER_URL")
+    reg = default_root(ROOT)
+    need = {"sla create": ("client", "start", "end"), "escrow create": ("payer", "amount", "deadline"),
+            "escrow check": ("file", "cert"), "escrow release": ("file", "cert"),
+            "sla sign": ("file",), "escrow sign": ("file",)}
+    missing = [f"--{k}" for k in need.get(f"{args.cmd} {getattr(args, 'action', '')}", ())
+               if not getattr(args, k)]
+    if missing:
+        sys.exit(f"{args.cmd} {args.action} needs {' '.join(missing)}")
+    try:
+        if args.cmd == "cv":
+            out = T.harness_cv(ident, reg, ledger)
+        elif args.cmd == "risk-profile":
+            out = T.risk_profile(ident, reg, ledger)
+        elif args.cmd == "sla":
+            out = (T.sla_create(ident, args.client, args.start, args.end, args.min_certificates,
+                                args.price, args.currency, not args.any_certificate)
+                   if args.action == "create" else T.sla_sign(_load_json(args.file), ident))
+        elif args.action == "create":
+            out = T.escrow_create(ident, args.payer, args.amount, args.currency, args.deadline,
+                                  args.arbiter, args.threshold)
+        elif args.action == "sign":
+            out = T.escrow_sign(_load_json(args.file), ident)
+        elif args.action == "check":
+            if not ledger:
+                sys.exit("escrow check needs ZANII_LEDGER_URL: release requires ledger proof")
+            out = T.escrow_check(_load_json(args.file), _load_json(args.cert), ledger)
+            _emit(out, args.out)
+            sys.exit(0 if out["ok"] else 1)
+        else:
+            out = T.escrow_release(_load_json(args.file), _load_json(args.cert), ident)
+    except (ValueError, KeyError, RuntimeError) as e:
+        sys.exit(str(e))
+    _emit(out, args.out)
+
+
+def data_proof(args) -> None:
+    from zanii_evolve import report as R
+    from zanii_evolve.tasksets import trace_task_id
+    cert = json.loads(Path(args.cert).read_text(encoding="utf-8")) if args.cert else None
+    try:
+        if args.action == "prove":
+            if not cert or not (args.task_id or args.text):
+                sys.exit("data prove needs --cert and --task-id or --text")
+            _emit(R.prove_task(cert, args.task_id or trace_task_id(args.text)), args.out)
+            return
+        if not args.proof:
+            sys.exit("data verify needs --proof (and --cert to tie it to a certificate)")
+        ok, why = R.verify_task_proof(json.loads(Path(args.proof).read_text(encoding="utf-8")),
+                                      cert)
+    except (ValueError, KeyError, RuntimeError) as e:
+        sys.exit(str(e))
+    print(why)
+    sys.exit(0 if ok else 1)
+
+
+def make_identity(out: Path, exp: str, pq: bool = False, plaintext: bool = False) -> None:
     from zanii_evolve.report import new_identity
     owner_p, ident_p = out / "owner.json", out / "identity.json"
     if owner_p.exists() or ident_p.exists():
         sys.exit(f"{out} already holds an identity; refusing to overwrite keys")
+    passphrase = os.environ.get("ZANII_EVOLVE_IDENTITY_PASSPHRASE")
+    if not passphrase and not plaintext:
+        sys.exit("set ZANII_EVOLVE_IDENTITY_PASSPHRASE to seal the keys at rest "
+                 "(or pass --plaintext to write them unencrypted)")
     try:
-        owner, ident = new_identity(exp)
+        owner, ident = new_identity(exp, passphrase=passphrase, pq=pq)
     except RuntimeError as e:
         sys.exit(str(e))
     out.mkdir(parents=True, exist_ok=True)
@@ -149,8 +236,11 @@ def make_identity(out: Path, exp: str) -> None:
         os.chmod(p, 0o600)                 # owner-only on POSIX; on Windows rely on the folder ACL
     print(f"owner DID (publish this; verifiers pin it): {owner['did']}\n"
           f"  {owner_p}: owner key, move it OFFLINE (only needed to re-delegate or revoke)\n"
-          f"  {ident_p}: signing identity, scope evolve.* until {exp}\n"
-          f"  next: export ZANII_EVOLVE_IDENTITY={ident_p}")
+          f"  {ident_p}: signing identity, scope evolve.* until {exp}"
+          + (" (+ ML-DSA-65 post-quantum key)" if pq else "") + "\n"
+          + ("  both keys sealed with ZANII_EVOLVE_IDENTITY_PASSPHRASE\n" if passphrase
+             else "  WARNING: keys written unencrypted\n")
+          + f"  next: export ZANII_EVOLVE_IDENTITY={ident_p}")
 
 
 def lessons_cmd(name: str, action: str, files: list[str], out: str | None,
@@ -256,6 +346,15 @@ def _cli(args: list[str], log: Path) -> int:
                               stdout=lf, stderr=subprocess.STDOUT, check=False).returncode
 
 
+def _constitution(domain: str) -> dict | None:
+    """The domain's signed rulebook, or None (none written, or zanii not installed)."""
+    try:
+        from zanii_evolve.trust import load_constitution
+        return load_constitution(domain)
+    except ImportError:
+        return None
+
+
 def _backoff(every: float, failures: int) -> float:
     """Seconds before retry number `failures`: every, 2x, 4x ... capped at a day."""
     return min(86400.0, every * 2 ** max(0, failures - 1))
@@ -321,10 +420,23 @@ def watch_tick(args, cfg_T: int, extra: list[str]) -> dict:
                               "shares": args.rollout}
         return out
 
+    # 0) the ledger our receipts are anchored on only grew since the last tick (zanii.monitor)
+    ledger = os.environ.get("ZANII_LEDGER_URL")
+    if ledger:
+        from zanii_evolve.trust import ledger_check
+        try:
+            m = ledger_check(run_dir, ledger)
+            st["ledger_error"] = m.get("skipped")
+            if m["ok"] is False:               # a rewritten or forked log
+                save({"event": "ledger_violation", "ledger": ledger,
+                      "violations": m["violations"]})
+        except Exception as e:                 # unreachable: unknown, not clean; no page per tick
+            st["ledger_error"] = f"{type(e).__name__}: {e}"
+
     # 1) a live rollout decides before anything else can change the branch
     rs = RO.load(run_dir)
     if rs and rs["status"] == "running":
-        verdict, ev = RO.decide(run_dir, rs, args.stall_hours)
+        verdict, ev = RO.decide(run_dir, rs, args.stall_hours, _constitution(args.domain))
         if verdict != "wait":
             arms = {"canary_commit": rs["canary"], "stable_commit": rs["stable"]}
             rs = RO.apply(run_dir, rs, verdict, ev)
@@ -465,8 +577,11 @@ def main():
     sub.add_parser("smoke")
     sub.add_parser("status")
     sub.add_parser("pareto", help="score/cost Pareto frontier of every measured harness")
-    sub.add_parser("report", help="generalization certificate (JSON + Markdown)").add_argument(
-        "--out", default=None, help="path stem: writes <out>.json and <out>.md (default: print)")
+    p = sub.add_parser("report", help="generalization certificate (JSON + Markdown)")
+    p.add_argument("--out", default=None,
+                   help="path stem: writes <out>.json and <out>.md (default: print)")
+    p.add_argument("--public", default=None, help="also write <out>.public.json proving only "
+                   "these comma-separated fields, e.g. domain,gain,noise_band,gain_exceeds_noise")
     sub.add_parser("publish", help="publish the incumbent harness + certificate to the registry")
     sub.add_parser("registry", help="list published harnesses")
     p = sub.add_parser("judge-agreement", help="rubric judge vs human labels (agreement, "
@@ -479,14 +594,91 @@ def main():
     p.add_argument("action", choices=["export", "import"])
     p.add_argument("files", nargs="*", help="import: pack files")
     p.add_argument("--out", help="export: pack file to write")
-    p = sub.add_parser("verify-report", help="check a certificate's digest / HMAC / receipt")
+    p = sub.add_parser("verify-report", help="check a certificate (full or public view): "
+                       "digest, HMAC, receipt, post-quantum and ledger inclusion")
     p.add_argument("file")
     p.add_argument("--owner", default=None, help="pin the expected owner did:key")
-    sub.add_parser("verify-receipts", help="check the run's chain of issued certificate receipts"
-                   ).add_argument("--owner", default=None)
-    p = sub.add_parser("identity", help="new owner key + delegated signing identity (zanii)")
+    p.add_argument("--ledger", default=None, help="Zanii ledger URL: also prove the receipt "
+                   "is included there")
+    p = sub.add_parser("verify-receipts", help="check the run's chain of issued certificate receipts")
+    p.add_argument("--owner", default=None)
+    p.add_argument("--revocations", default=None, help="revocations.json from rotate-identity")
+    p = sub.add_parser("identity", help="new owner key + delegated signing identity (zanii); "
+                       "sealed with ZANII_EVOLVE_IDENTITY_PASSPHRASE")
     p.add_argument("--out", required=True, help="directory for owner.json and identity.json")
     p.add_argument("--exp", default="2031-01-01T00:00:00Z", help="delegation expiry (UTC)")
+    p.add_argument("--pq", action="store_true", help="add an ML-DSA-65 key: certificates are "
+                   "dual-signed Ed25519 + post-quantum (pip install zanii[pq])")
+    p.add_argument("--plaintext", action="store_true", help="write keys unencrypted")
+    p = sub.add_parser("rotate-identity", help="new signing key under the same owner; history "
+                       "continues through a signed succession")
+    p.add_argument("--owner-key", required=True, help="owner.json")
+    p.add_argument("--identity", required=True, help="the current identity.json")
+    p.add_argument("--out", required=True, help="directory for the new identity")
+    p.add_argument("--reason", default="rotation", choices=["rotation", "compromise", "retirement"])
+    p.add_argument("--compromised-at", default=None, help="UTC time the old key was exposed")
+    p.add_argument("--exp", default="2031-01-01T00:00:00Z")
+    sub.add_parser("verify-memory", help="check a deployment's provable memory chain "
+                   "(ZANII_EVOLVE_PROVABLE_MEMORY=1) against its stored lessons"
+                   ).add_argument("state_dir")
+    p = sub.add_parser("data", help="client data: prove a record was or was not in a "
+                       "certificate's training set, or delete it with a signed attestation")
+    p.add_argument("action", choices=["prove", "verify", "forget"])
+    p.add_argument("--cert", help="prove/verify: the full certificate JSON")
+    p.add_argument("--proof", help="verify: a proof written by `data prove`")
+    p.add_argument("--task-id", help="the record's task id (tr-..., bb-...)")
+    p.add_argument("--text", help="or the record's original input text")
+    p.add_argument("--out", help="write the proof / attestation here (default: print)")
+    p = sub.add_parser("cv", help="signed AgentCV of the certifying identity: every published "
+                       "certificate as a verifiable benchmark entry")
+    p.add_argument("--out")
+    p = sub.add_parser("risk-profile", help="underwriting facts about the certifying identity "
+                       "(never a score)")
+    p.add_argument("--out")
+    p = sub.add_parser("sla", help="evolve-as-a-service terms: create and sign them, or assess "
+                       "a domain against them from its receipt chain")
+    p.add_argument("action", choices=["create", "sign", "assess"])
+    p.add_argument("--file", help="sign/assess: the agreement JSON")
+    p.add_argument("--client", help="create: the client's did:key")
+    p.add_argument("--start", help="create: window start (UTC ISO)")
+    p.add_argument("--end", help="create: window end (UTC ISO)")
+    p.add_argument("--min-certificates", type=int, default=1)
+    p.add_argument("--any-certificate", action="store_true",
+                   help="count every certificate, not only certified gains")
+    p.add_argument("--price", help="create: informational price, e.g. 5000.00")
+    p.add_argument("--currency", default="USD")
+    p.add_argument("--out")
+    p = sub.add_parser("escrow", help="pay per certified gain: terms, signatures, the "
+                       "ledger-proven release verdict, and the release instruction")
+    p.add_argument("action", choices=["create", "sign", "check", "release"])
+    p.add_argument("--file", help="sign/check/release: the escrow JSON")
+    p.add_argument("--payer", help="create: the payer's did:key")
+    p.add_argument("--amount", help="create: e.g. 5000.00 (exact, never a float)")
+    p.add_argument("--currency", default="USD")
+    p.add_argument("--deadline", help="create: UTC ISO")
+    p.add_argument("--arbiter", action="append", default=None, help="create: arbiter did:key")
+    p.add_argument("--threshold", type=int, default=1)
+    p.add_argument("--cert", help="check/release: the certificate JSON")
+    p.add_argument("--out")
+    p = sub.add_parser("audit", help="auditor's Markdown report over the domain's certificates, "
+                       "receipt chains, rollouts, rulebook, client data and memory")
+    p.add_argument("--owner", default=None)
+    p.add_argument("--bundle", default=None, help="a ledger audit bundle (`zanii bundle`)")
+    p.add_argument("--memory-dir", default=None, help="a deployment state dir to include")
+    p.add_argument("--out", default=None)
+    p = sub.add_parser("anchor-identity", help="anchor the identity's post-quantum key binding "
+                       "on the ledger (once), or --check a saved anchor offline")
+    p.add_argument("--check", default=None, help="a pq_transition.json to verify offline")
+    sub.add_parser("ledger-check", help="audit the Zanii ledger (ZANII_LEDGER_URL) once and "
+                   "save its state; watch then proves on every tick that it only grew")
+    p = sub.add_parser("audit-rollout", help="re-check live evidence: the signed decision "
+                       "chain, that every arm follows from its plan, plans never interleaved, "
+                       "and session receipts under the rulebook")
+    p.add_argument("--owner", default=None, help="pin the owner did:key of the decision signer")
+    p = sub.add_parser("constitution", help="the domain's rules as a signed rulebook: sign "
+                       "domains/<d>/constitution.json, or check one action target")
+    p.add_argument("action", choices=["sign", "check"])
+    p.add_argument("target", nargs="?", help="check: an action target, e.g. crm.export")
     sub.add_parser("init-domain", help="scaffold domains/<--domain> from the brief template")
     p = sub.add_parser("import-tasks", help="add tasks to a brief domain from .csv or .jsonl")
     p.add_argument("file")
@@ -553,13 +745,54 @@ def main():
         from zanii_evolve.report import verify
         try:
             ok, why = verify(json.loads(Path(args.file).read_text(encoding="utf-8")),
-                             owner=args.owner)
+                             owner=args.owner, ledger=args.ledger)
         except RuntimeError as e:          # receipt present, zanii not installed
             sys.exit(str(e))
         print(why)
         sys.exit(0 if ok else 1)
     if args.cmd == "identity":
-        make_identity(Path(args.out), args.exp)
+        make_identity(Path(args.out), args.exp, pq=args.pq, plaintext=args.plaintext)
+        return
+    if args.cmd == "rotate-identity":
+        from zanii_evolve.trust import rotate_identity
+        try:
+            print(json.dumps(rotate_identity(
+                Path(args.owner_key), Path(args.identity), Path(args.out), args.reason,
+                args.compromised_at, args.exp,
+                os.environ.get("ZANII_EVOLVE_IDENTITY_PASSPHRASE")), indent=1))
+        except (ValueError, RuntimeError, FileExistsError, OSError) as e:
+            sys.exit(str(e))
+        return
+    if args.cmd == "verify-memory":
+        from zanii_evolve.trust import verify_memory
+        try:
+            rep = verify_memory(Path(args.state_dir))
+        except (LookupError, RuntimeError) as e:
+            sys.exit(str(e))
+        print(json.dumps(rep, indent=1))
+        sys.exit(0 if rep["ok"] else 1)
+    if args.cmd == "data" and args.action in ("prove", "verify"):
+        data_proof(args)
+        return
+    if args.cmd == "anchor-identity":
+        from zanii_evolve import trust as T
+        from zanii_evolve.report import ledger_api_key, load_identity
+        try:
+            if args.check:
+                v = T.verify_anchored_identity(Path(args.check))
+                print("anchored binding verifies" if v["ok"] else f"FAILED: {v['reasons']}")
+                sys.exit(0 if v["ok"] else 1)
+            ident, ledger = load_identity(), os.environ.get("ZANII_LEDGER_URL")
+            if not ident or not ledger:
+                sys.exit("set ZANII_EVOLVE_IDENTITY and ZANII_LEDGER_URL")
+            out = Path(os.environ["ZANII_EVOLVE_IDENTITY"]).parent / "pq_transition.json"
+            print(json.dumps(T.anchor_identity(ident, ledger, ledger_api_key(), out), indent=1))
+        except (ValueError, RuntimeError, FileExistsError, OSError) as e:
+            sys.exit(str(e))
+        return
+    if args.cmd in ("cv", "risk-profile", "escrow") or (args.cmd == "sla"
+                                                         and args.action != "assess"):
+        business(args)
         return
     if args.cmd == "registry":
         from zanii_evolve.registry import default_root, entries
@@ -570,6 +803,79 @@ def main():
 
     if args.cmd == "init-domain":
         init_domain(args.domain)
+        return
+    if args.cmd == "data":                     # forget
+        from zanii_evolve.report import load_identity
+        from zanii_evolve.trust import forget
+        ident = load_identity()
+        if not ident:
+            sys.exit("set ZANII_EVOLVE_IDENTITY: the deletion attestation is signed")
+        try:
+            out = forget(args.domain, Path(args.runs) / args.domain, ident,
+                         text=args.text, task_id=args.task_id)
+        except (ValueError, LookupError, RuntimeError, OSError) as e:
+            sys.exit(str(e))
+        _emit(out, args.out)
+        print(f"deleted {out['task_id']}: {out['removed_tasks']} task, {out['removed_files']} "
+              f"run files; give the client the attestation and its salt", file=sys.stderr)
+        return
+    if args.cmd == "sla":                      # assess
+        from zanii_evolve.trust import sla_assess
+        if not args.file:
+            sys.exit("sla assess needs --file")
+        out = sla_assess(_load_json(args.file), Path(args.runs) / args.domain)
+        _emit(out, args.out)
+        sys.exit(0 if out.get("ok") else 1)
+    if args.cmd == "audit":
+        from zanii_evolve.registry import default_root
+        from zanii_evolve.trust import audit
+        try:
+            md = audit(args.domain, Path(args.runs) / args.domain, default_root(ROOT), args.owner,
+                       _load_json(args.bundle) if args.bundle else None,
+                       Path(args.memory_dir) if args.memory_dir else None)
+        except (RuntimeError, ValueError, OSError) as e:
+            sys.exit(str(e))
+        if args.out:
+            Path(args.out).write_text(md, encoding="utf-8")
+            print(f"wrote {args.out}")
+        else:
+            print(md)
+        return
+    if args.cmd == "ledger-check":
+        from zanii_evolve.trust import ledger_check
+        if not os.environ.get("ZANII_LEDGER_URL"):
+            sys.exit("set ZANII_LEDGER_URL")
+        print("auditing the whole ledger history once; this can take minutes", flush=True)
+        try:
+            m = ledger_check(Path(args.runs) / args.domain, os.environ["ZANII_LEDGER_URL"],
+                             bootstrap=True)
+        except Exception as e:                 # transport errors from the SDK
+            sys.exit(f"ledger check failed: {e}")
+        print(json.dumps(m, indent=1))
+        sys.exit(0 if m["ok"] else 1)
+    if args.cmd == "audit-rollout":
+        from zanii_evolve import live
+        try:
+            rep = live.audit(Path(args.runs) / args.domain, args.owner, _constitution(args.domain))
+        except (RuntimeError, ValueError) as e:
+            sys.exit(str(e))
+        print(json.dumps(rep, indent=1))
+        sys.exit(0 if rep["ok"] else 1)
+    if args.cmd == "constitution":
+        from zanii_evolve import trust as T
+        from zanii_evolve.report import load_identity
+        try:
+            if args.action == "sign":
+                ident = load_identity()
+                if not ident:
+                    sys.exit("set ZANII_EVOLVE_IDENTITY to the identity that signs the rulebook")
+                print(f"signed {T.sign_constitution(args.domain, ident)}")
+            else:
+                if not args.target:
+                    sys.exit("constitution check needs an action target")
+                print(json.dumps(T.check_action(args.domain, args.target), indent=1))
+        except (ValueError, LookupError, RuntimeError, OSError) as e:
+            sys.exit(str(e))
         return
     if args.cmd == "import-tasks":
         import_tasks(args.domain, args.file, args.heldout, args.replace)
@@ -659,6 +965,16 @@ def main():
             Path(args.out + ".json").write_text(json.dumps(cert, indent=1), encoding="utf-8")
             Path(args.out + ".md").write_text(R.markdown(cert), encoding="utf-8")
             print(f"wrote {args.out}.json and {args.out}.md (digest {cert['digest'][:16]})")
+            if args.public:
+                try:
+                    view = R.public_view(cert, [f.strip() for f in args.public.split(",")
+                                                if f.strip()])
+                except ValueError as e:
+                    sys.exit(str(e))
+                Path(args.out + ".public.json").write_text(json.dumps(view, indent=1),
+                                                           encoding="utf-8")
+                print(f"wrote {args.out}.public.json proving {sorted(R.disclosed(view))}; "
+                      f"keep {args.out}.json private (it holds the disclosure salts)")
     elif args.cmd == "publish":
         from zanii_evolve.registry import default_root, publish
         try:
@@ -667,9 +983,11 @@ def main():
             sys.exit(str(e))
     elif args.cmd == "verify-receipts":
         from zanii_evolve.report import verify_chain
+        from zanii_evolve.trust import revoked_set
         try:
-            ok, why = verify_chain(run.runs, owner=args.owner)
-        except RuntimeError as e:
+            ok, why = verify_chain(run.runs, owner=args.owner,
+                                   revoked=revoked_set(args.revocations))
+        except (RuntimeError, ValueError) as e:
             sys.exit(str(e))
         print(why)
         sys.exit(0 if ok else 1)

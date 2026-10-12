@@ -15,7 +15,7 @@
 
 [project]
 name = "zanii-evolve"
-version = "0.2.2"
+version = "0.3.0"
 description = "Regularized self-improvement of LLM agent harnesses: gains that hold up out of distribution, with verifiable change history"
 readme = "README.md"
 license = "Apache-2.0"
@@ -64,8 +64,15 @@ coding = [
     "harbor>=0.18",
     "zaniidb-agent-memory>=0.11; python_version >= '3.11'",
 ]
-# Zanii proof-of-action receipts on certificates (report / publish / verify-report)
+# Zanii proof-of-action receipts on certificates (report / publish / verify-report),
+# sealed keys, signed rulebooks, live-session receipts, data proofs, CV / SLA / escrow
 provable = ["zanii>=0.25"]
+# post-quantum dual signatures on certificates (identity --pq)
+pq = ["zanii[pq]>=0.25"]
+# one-line receipt hooks for agent frameworks (SessionRecorder)
+langchain = ["zanii[langchain]>=0.25"]
+openai-agents = ["zanii[openai-agents]>=0.25"]
+crewai = ["zanii[crewai]>=0.25"]
 # ZaniiDB backend for the harness memory lever (JSONL is used without it)
 memory = ["zaniidb-agent-memory>=0.11; python_version >= '3.11'"]
 dev = ["pytest>=7.0"]
