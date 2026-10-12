@@ -40,7 +40,7 @@ import os
 import time
 from pathlib import Path
 
-SCHEMA = "zanii-evolve-certificate/1"
+SCHEMA = "zanii-evolve-certificate/2"
 RECEIPT_ACTION, RECEIPT_TARGET, SCOPE = "certificate_issued", "evolve.report", "evolve.*"
 
 
@@ -126,6 +126,12 @@ def build(run_dir: Path, key: str | None = None, identity: dict | None = None,
         heldout.append({"label": p.parent.name[len("heldout_"):], "S": ev.get("S"),
                         "C": ev.get("C"), "missing": ev.get("missing"),
                         "n_expected": ev.get("n_expected")})
+    confirmations = _records(run_dir / "confirmations.jsonl")
+    both = [c for c in confirmations
+            if c.get("S_selected") is not None and c.get("S_confirmed") is not None]
+    shrinkage = (sum(c["S_selected"] - c["S_confirmed"] for c in both) / len(both)
+                 if both else None)
+    judge = _read(run_dir / "judge_agreement.json")
     body = {
         "schema": SCHEMA,
         "domain": fr.get("domain") or run_dir.name,
@@ -143,6 +149,12 @@ def build(run_dir: Path, key: str | None = None, identity: dict | None = None,
                            for r in hist if r.get("accepted") and r.get("edit_id")],
         "candidate_outcomes": outcomes,
         "heldout": heldout,
+        # 0.2: every winner measured again on fresh trials, and how much its selected
+        # score overstated it (the winner's curse), mean over the confirmed ones
+        "confirmations": confirmations,
+        "selection_shrinkage": shrinkage,
+        # 0.2: the rubric judge as checked against people, when it was
+        "judge": judge,
         "config": cfg,
     }
     digest = hashlib.sha256(_canonical(body)).hexdigest()
@@ -259,6 +271,19 @@ def markdown(cert: dict) -> str:
               for e in cert["accepted_edits"]] or ["- none"]
     lines += ["", "## Candidate outcomes", ""]
     lines += [f"- {k}: {v}" for k, v in sorted(cert["candidate_outcomes"].items())] or ["- none"]
+    conf = cert.get("confirmations") or []
+    lines += ["", "## Confirmation runs", ""]
+    lines += [f"- r{c['t']}{c['variant']}: selected S {_f(c.get('S_selected'))}, on fresh trials "
+              f"{_f(c.get('S_confirmed'))}: " + ("held" if c.get("confirmed") else "did not hold")
+              for c in conf] or ["- none (confirmation off, or no round had a winner)"]
+    if cert.get("selection_shrinkage") is not None:
+        lines += ["", (f"Selected scores overstated the confirmed ones by "
+                       f"{_f(cert['selection_shrinkage'], '{:+.4f}')} on average.")]
+    j = cert.get("judge")
+    lines += ["", "## Rubric judge", "",
+              (f"- `{j.get('model')}` checked against people: kappa {_f(j.get('kappa'))}, "
+               f"agreement {_f(j.get('agreement'), '{:.1%}')} over {j.get('n')} judgements "
+               f"({j.get('recorded_at')})") if j else "- not checked against people"]
     lines += ["", "## Held-out and out-of-distribution evaluations", ""]
     lines += [f"- {h['label']}: S {_f(h['S'])}, missing {h['missing']}/{h['n_expected']}"
               for h in cert["heldout"]] or ["- none run yet (`heldout --label <name>`)"]

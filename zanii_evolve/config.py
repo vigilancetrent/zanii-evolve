@@ -41,6 +41,14 @@ Symbols follow the paper:
   beta0/beta1  L1 cost rule for gaining candidates (Eq. tokenbudget)
   w_s/w_c/w_n  shaped rule for candidates inside the noise band (Alg. 2 l.5)
   n_prune    window of the recent-yield summary g_t (Eq. yield / prune)
+  confirm_k  trials per task of the confirmation run: the round's winner is
+             measured again on fresh trials, and only that measurement decides
+             acceptance and becomes the incumbent's score (None = k, 0 = off).
+             The winner is the maximum of m noisy measurements, so its own
+             measurement is biased upward (the winner's curse); a fresh one is not.
+  min_judge_kappa  rubric domains: refuse to measure until a recorded
+             judge-agreement for the same judge model reaches this Cohen's kappa
+             (None = off)
 
 Units: scores S are fractions in [0,1] (Eq. estimate), cost C is mean policy
 tokens per trial, Delta C is RELATIVE (Eq. tokenbudget), so beta0 = 0.10 means
@@ -75,6 +83,8 @@ class ZaniiEvolveConfig:
     w_n: float = 0.5
     n_prune: int = 4
     objective: str = "score"        # among admissible: "score" = argmax S, "cost" = argmin C
+    confirm_k: int | None = None    # confirmation trials per task (None = k, 0 = off)
+    min_judge_kappa: float | None = None   # judge gate for rubric domains (None = off)
     # ---- engineering knobs (not part of the method) ----------------------
     repair_rounds: int = 5          # critic -> proposer repair attempts
     invalid_missing_frac: float = 0.15
@@ -89,6 +99,15 @@ class ZaniiEvolveConfig:
     def __post_init__(self):
         if self.objective not in ("score", "cost"):
             raise ValueError(f"objective must be 'score' or 'cost', not {self.objective!r}")
+        if self.confirm_k is not None and self.confirm_k < 0:
+            raise ValueError(f"confirm_k must be >= 0 (0 = off), not {self.confirm_k}")
+        if self.min_judge_kappa is not None and not -1 <= self.min_judge_kappa <= 1:
+            raise ValueError(f"min_judge_kappa must be in [-1, 1], not {self.min_judge_kappa}")
+
+    @property
+    def confirm_trials(self) -> int:
+        """Trials per task of the confirmation run; 0 when it is off."""
+        return self.k if self.confirm_k is None else self.confirm_k
 
     @classmethod
     def load(cls, path: Path | str, **overrides) -> "ZaniiEvolveConfig":

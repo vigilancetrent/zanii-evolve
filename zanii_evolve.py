@@ -52,11 +52,14 @@
   python3 zanii_evolve.py --domain clients import-tasks briefs.csv [--replace] [--heldout 0.2]
   python3 zanii_evolve.py --domain clients redteam [--n 10]     # prompt-injection split
   python3 zanii_evolve.py --domain clients ingest-traces prod.jsonl --rubric "Answers|No made-up facts"
+  BLACKBOX_API_KEY=... python3 zanii_evolve.py --domain clients ingest-blackbox --url https://blackbox.example.com --label refunds
+  python3 zanii_evolve.py --domain clients judge-agreement --labels human.jsonl --record   # for --min-judge-kappa
   python3 zanii_evolve.py serve [--host 127.0.0.1 --port 8765]  # service API + dashboard
 
 Hyperparameters come from domains/<domain>/zanii_evolve.json; any of them can be
 overridden on the command line (--T, --k, --m, --b-min, --b-max, --w,
---m-draft, --delta, --beta0, --beta1, --w-s, --w-c, --w-n, --n-prune, --objective score|cost).
+--m-draft, --delta, --beta0, --beta1, --w-s, --w-c, --w-n, --n-prune, --objective score|cost,
+--confirm-k (0 = no confirmation run), --min-judge-kappa).
 """
 
 import argparse
@@ -76,7 +79,14 @@ from zanii_evolve.loop import Run                    # noqa: E402
 from zanii_evolve.schedule import budget_table       # noqa: E402
 
 OVERRIDES = ["T", "k", "m", "b_min", "b_max", "w", "m_draft", "delta", "delta_z",
-             "beta0", "beta1", "w_s", "w_c", "w_n", "n_prune", "eval_parallel", "objective"]
+             "beta0", "beta1", "w_s", "w_c", "w_n", "n_prune", "eval_parallel", "objective",
+             "confirm_k", "min_judge_kappa"]
+
+
+def judge_model(domain) -> str:
+    """The rubric judge a brief domain grades with."""
+    return os.environ.get("ZANII_EVOLVE_JUDGE_MODEL",
+                          domain.cfg.get("judge_model", "claude-sonnet-5-5"))
 
 
 def init_domain(name: str) -> None:
@@ -184,6 +194,36 @@ def ingest_traces(name: str, path: str, rubric: str, limit: int, heldout: float)
           f"feedback), {n} in tasks.jsonl")
 
 
+def ingest_blackbox(name: str, url: str, label: str, rubric: str, limit: int,
+                    heldout: float) -> None:
+    """Brief tasks from a Zanii Blackbox gateway's record of one agent's runs."""
+    from zanii_evolve import blackbox as BB
+    from zanii_evolve import tasksets as TS
+    d = ROOT / "domains" / name
+    if not (d / "tasks.jsonl").is_file():
+        sys.exit(f"{name} is not a brief domain (no {d / 'tasks.jsonl'})")
+    key = os.environ.get("BLACKBOX_API_KEY")
+    if not key:
+        sys.exit("set BLACKBOX_API_KEY to the gateway's admin key (it reads request bodies)")
+    if not 1 <= limit <= 1000:
+        sys.exit("--limit must be 1-1000")
+    get = BB.http_get(url, key)
+    try:
+        runs, unreadable = BB.fetch_runs(get, label, limit)
+        known = {t["id"] for t in TS.load_tasks(d / "tasks.jsonl")}
+        rows = [r for r in BB.to_tasks(runs, BB.catalogue(get),
+                                       [c.strip() for c in rubric.split("|") if c.strip()],
+                                       limit)
+                if r["id"] not in known]          # ingesting the same runs again adds nothing
+        n = TS.write_tasks(d, TS.assign_splits(rows, heldout)) if rows else len(known)
+    except (ValueError, OSError, RuntimeError) as e:
+        sys.exit(f"ingest failed, tasks.jsonl unchanged: {e}")
+    print(f"{name}: minted {len(rows)} tasks from {len(runs)} runs of {label!r} "
+          f"({sum(1 for r in rows if r['notes']['feedback'] == 'bad')} that went wrong), "
+          f"{n} in tasks.jsonl"
+          + (f"; {unreadable} runs could not be read and were skipped" if unreadable else ""))
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -191,7 +231,7 @@ def main():
     ap.add_argument("--runs", default=str(ROOT / "runs"))
     for name in OVERRIDES:
         typ = (int if name in ("T", "k", "m", "b_min", "b_max", "w", "m_draft",
-                               "n_prune", "eval_parallel") else
+                               "n_prune", "eval_parallel", "confirm_k") else
                str if name == "objective" else float)
         ap.add_argument("--" + name.replace("_", "-"), dest=name, type=typ, default=None)
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -218,8 +258,11 @@ def main():
         "--out", default=None, help="path stem: writes <out>.json and <out>.md (default: print)")
     sub.add_parser("publish", help="publish the incumbent harness + certificate to the registry")
     sub.add_parser("registry", help="list published harnesses")
-    sub.add_parser("judge-agreement", help="rubric judge vs human labels (agreement, "
-                   "Cohen's kappa)").add_argument("--labels", required=True)
+    p = sub.add_parser("judge-agreement", help="rubric judge vs human labels (agreement, "
+                       "Cohen's kappa)")
+    p.add_argument("--labels", required=True)
+    p.add_argument("--record", action="store_true",
+                   help="keep the result for the min_judge_kappa gate and the certificate")
     p = sub.add_parser("lessons", help="opt-in lesson packs: export a run's lessons / "
                        "import packs into domains/<d>/shared_lessons.jsonl")
     p.add_argument("action", choices=["export", "import"])
@@ -246,6 +289,14 @@ def main():
     p.add_argument("file")
     p.add_argument("--rubric", required=True, help='"|"-separated pass/fail criteria for every task')
     p.add_argument("--limit", type=int, default=200)
+    p.add_argument("--heldout", type=float, default=0.2)
+    p = sub.add_parser("ingest-blackbox", help="mint brief tasks from a Zanii Blackbox "
+                       "gateway's record of one agent's runs (BLACKBOX_API_KEY)")
+    p.add_argument("--url", required=True, help="the gateway, e.g. https://blackbox.example.com")
+    p.add_argument("--label", required=True, help="the agent's Blackbox label")
+    p.add_argument("--rubric", default="Does what the request asks, completely and correctly",
+                   help='"|"-separated pass/fail criteria for every task')
+    p.add_argument("--limit", type=int, default=200, help="newest closed runs to read (1-1000)")
     p.add_argument("--heldout", type=float, default=0.2)
     p = sub.add_parser("serve", help="service API + dashboard")
     p.add_argument("--host", default="127.0.0.1")
@@ -290,11 +341,20 @@ def main():
     if args.cmd == "ingest-traces":
         ingest_traces(args.domain, args.file, args.rubric, args.limit, args.heldout)
         return
+    if args.cmd == "ingest-blackbox":
+        ingest_blackbox(args.domain, args.url, args.label, args.rubric, args.limit, args.heldout)
+        return
 
     domain = load_domain(args.domain)
     cfg = ZaniiEvolveConfig.load(domain.root / "zanii_evolve.json",
                            **{k: getattr(args, k) for k in OVERRIDES})
     run = Run(domain, cfg, ROOT, Path(args.runs))
+    # the judge gate: a rubric run measures nothing until its judge agrees with people
+    if args.cmd in ("baseline", "round", "run", "heldout") and hasattr(domain, "tasks"):
+        from zanii_evolve.judgecal import gate
+        why = gate(run.runs, judge_model(domain), cfg.min_judge_kappa)
+        if why:
+            sys.exit(why)
 
     if args.cmd == "baseline":
         run.baseline(args.job)
@@ -358,9 +418,11 @@ def main():
             sys.exit(f"{domain.name} is not a brief domain (no rubric judge)")
         labels = [json.loads(x) for x in Path(args.labels).read_text(encoding="utf-8").splitlines()
                   if x.strip()]
-        model = os.environ.get("ZANII_EVOLVE_JUDGE_MODEL",
-                               domain.cfg.get("judge_model", "claude-sonnet-5-5"))
-        print(json.dumps(agreement(domain.tasks, labels, model), indent=1, ensure_ascii=False))
+        result = agreement(domain.tasks, labels, judge_model(domain))
+        if args.record:
+            from zanii_evolve.judgecal import record
+            record(run.runs, result)
+        print(json.dumps(result, indent=1, ensure_ascii=False))
     elif args.cmd == "status":
         fr = run.frontier()
         print(json.dumps({k: v for k, v in fr.items() if k != "config"}, indent=1))

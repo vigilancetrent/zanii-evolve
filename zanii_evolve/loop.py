@@ -64,7 +64,7 @@ from .evaluate import EvalResult, evaluate
 from .history import History, exploration, stall_flag
 from .propose import propose
 from .schedule import edit_budget
-from .selection import Candidate, select_round
+from .selection import Candidate, confirm, select_round
 
 VARIANT_LABELS = "ABCDEFGH"
 
@@ -306,6 +306,10 @@ class Run:
         counts = self.history.incumbent_component_counts()
         winner, decisions = select_round(cands, inc_ev, fr["S_star"], delta, cfg,
                                          counts, guard_fn=d.guards)
+        # 6b) the winner measured again on fresh trials: only that measurement counts
+        if winner is not None and cfg.confirm_trials > 0:
+            winner, decisions = self._confirm(t, winner, cands, decisions, rdir, ids,
+                                              inc_ev, fr["S_star"], delta, counts)
         (rdir / "decisions.json").write_text(json.dumps(
             [x.to_json() for x in decisions], indent=1))
         for c, dec in zip(cands, decisions):
@@ -317,6 +321,7 @@ class Run:
                                               False, None, None, c.diff_path, c.detail)
                 continue
             outcome = ("ACCEPTED" if c is winner else
+                       "UNCONFIRMED" if dec.reason.startswith("not confirmed") else
                        ("LOST" if dec.admissible else "REJECTED"))
             self.history.append_candidate(t, c.variant, c.edits, outcome, dec.delta_S,
                                           dec.delta_C, c is winner, dec.S, dec.C,
@@ -328,11 +333,13 @@ class Run:
         # 7) H_{t+1}
         if winner is not None:
             G.fast_forward(self.repo, self.branch, winner.commit)
-            new_S, new_C = winner.ev.S, winner.ev.C
+            # the confirmed measurement when there is one: it is the unbiased one
+            ev = self._confirmed(rdir, winner) or winner.ev
+            new_S, new_C = ev.S, ev.C
             fr["incumbent"] = {"t": t + 1, "commit": winner.commit,
                                "harness_tree": self.harness_tree(winner.commit),
-                               "job": winner.ev.job, "S": new_S, "C": new_C,
-                               "extra": winner.ev.extra, "variant": winner.variant}
+                               "job": ev.job, "S": new_S, "C": new_C,
+                               "extra": ev.extra, "variant": winner.variant}
             fr["S_star"] = max(fr["S_star"], new_S)
             log(d.name, f"ACCEPTED r{t}{winner.variant} -> {winner.commit} "
                 f"S={new_S:.4f} S*={fr['S_star']:.4f}")
@@ -382,6 +389,19 @@ class Run:
                 counts[r["component"]] += 1
         winner, decisions = select_round(cands, inc_ev, S_star, delta, cfg, counts,
                                          guard_fn=d.guards)
+        if winner is not None and cfg.confirm_trials > 0:
+            i = cands.index(winner)
+            ev = self._confirmed(rdir, winner)
+            if ev is None:
+                decisions[i].admissible = False
+                decisions[i].reason = ("not confirmed: no confirmation run for this winner; "
+                                       f"`reevaluate {t}` then `round {t}` to measure one")
+                winner = None
+            else:
+                decisions[i] = confirm(winner, ev, inc_ev, S_star, delta, cfg, counts,
+                                       guard_fn=d.guards)
+                if not decisions[i].admissible:
+                    winner = None
         (rdir / "decisions.json").write_text(json.dumps(
             [x.to_json() for x in decisions], indent=1))
         self.history.replace_round(t)
@@ -390,7 +410,9 @@ class Run:
                 self.history.append_candidate(t, c.variant, c.edits, c.gate_failure or "not_evaluated",
                                               None, None, False, None, None, c.diff_path, c.detail)
                 continue
-            outcome = ("ACCEPTED" if c is winner else ("LOST" if dec.admissible else "REJECTED"))
+            outcome = ("ACCEPTED" if c is winner else
+                       "UNCONFIRMED" if dec.reason.startswith("not confirmed") else
+                       ("LOST" if dec.admissible else "REJECTED"))
             self.history.append_candidate(t, c.variant, c.edits, outcome, dec.delta_S, dec.delta_C,
                                           c is winner, dec.S, dec.C, c.diff_path,
                                           f"[re-adjudicated delta={delta:.5f}] " + dec.reason)
@@ -401,15 +423,17 @@ class Run:
             if r.returncode != 0:
                 raise SystemExit(f"{winner.commit} does not descend from H_{t} {inc_entry['commit']}")
             G.git(self.repo, "update-ref", f"refs/heads/{self.branch}", winner.commit, check=True)
+            ev = self._confirmed(rdir, winner) if cfg.confirm_trials > 0 else None
+            ev = ev or winner.ev
             new = {"t": t + 1, "commit": winner.commit, "harness_tree": self.harness_tree(winner.commit),
-                   "job": winner.ev.job, "S": winner.ev.S, "C": winner.ev.C,
-                   "extra": winner.ev.extra, "variant": winner.variant}
+                   "job": ev.job, "S": ev.S, "C": ev.C,
+                   "extra": ev.extra, "variant": winner.variant}
             fr["incumbent"] = new
-            fr["S_star"] = max(S_star, winner.ev.S)
-            entry = {"t": t + 1, "S": winner.ev.S, "C": winner.ev.C, "commit": winner.commit,
-                     "job": winner.ev.job}
+            fr["S_star"] = max(S_star, ev.S)
+            entry = {"t": t + 1, "S": ev.S, "C": ev.C, "commit": winner.commit,
+                     "job": ev.job}
             log(d.name, f"re-adjudicated r{t}: ACCEPTED {winner.variant} -> {winner.commit} "
-                f"S={winner.ev.S:.4f} S*={fr['S_star']:.4f}")
+                f"S={ev.S:.4f} S*={fr['S_star']:.4f}")
         else:
             G.git(self.repo, "update-ref", f"refs/heads/{self.branch}", inc_entry["commit"], check=True)
             fr["incumbent"] = {"t": t + 1, "commit": inc_entry["commit"],
@@ -575,6 +599,62 @@ class Run:
             f"{[e['component'] for e in edits]} -> {commit}")
         return Candidate(vid, edits, diff_path=str(vdir / "diff.patch"),
                          branch=branch, commit=commit)
+
+    def _confirmed(self, rdir: Path, c: Candidate) -> EvalResult | None:
+        """A candidate's confirmation measurement, when it was taken."""
+        p = rdir / c.variant / "confirm.json"
+        return EvalResult.load(p) if p.exists() else None
+
+    def _confirm(self, t: int, winner: Candidate, cands: list[Candidate], decisions: list,
+                 rdir: Path, ids: list[str], inc_ev: EvalResult, S_star: float,
+                 delta: float, counts: dict) -> tuple[Candidate | None, list]:
+        """Measure the round's winner again on fresh trials (its own worktree, a new
+        job) and judge it on that measurement alone. Returns the winner, or None
+        when it does not hold up, and the decisions with the winner's replaced."""
+        d, cfg = self.domain, self.cfg
+        ev = self._confirmed(rdir, winner)
+        if ev is None:
+            job = f"r{t}{winner.variant}_confirm"
+            try:
+                ev = evaluate(d, self.wt_root / f"r{t}{winner.variant}", self.runs, job, ids,
+                              cfg.confirm_trials, log_prefix=job)
+            except Exception as e:  # noqa: BLE001
+                ev = None
+                log(d.name, f"{winner.variant}: confirmation crashed: {e!r}"[:600])
+            if ev is not None and ev.missing > cfg.invalid_missing_frac * ev.n_expected:
+                log(d.name, f"{winner.variant}: confirmation invalid, {ev.missing}/"
+                    f"{ev.n_expected} trials missing")
+                ev = None
+            if ev is not None:
+                ev.save(rdir / winner.variant / "confirm.json")
+                self.eval_path(job).parent.mkdir(parents=True, exist_ok=True)
+                ev.save(self.eval_path(job))
+        i = cands.index(winner)
+        if ev is None:
+            dec = decisions[i]
+            dec.admissible = False
+            dec.reason = "not confirmed: the confirmation run could not be measured"
+            self._record_confirmation(t, winner, None)
+            return None, decisions
+        dec = confirm(winner, ev, inc_ev, S_star, delta, cfg, counts, guard_fn=d.guards)
+        decisions[i] = dec
+        self._record_confirmation(t, winner, ev, dec.admissible)
+        log(d.name, f"{winner.variant}: {dec.reason}")
+        return (winner if dec.admissible else None), decisions
+
+    def _record_confirmation(self, t: int, winner: Candidate, ev: EvalResult | None,
+                             held: bool = False) -> None:
+        """runs/<domain>/confirmations.jsonl: every confirmation, for the certificate."""
+        rec = {"t": t, "variant": winner.variant,
+               "S_selected": winner.ev.S if winner.ev else None,
+               "C_selected": winner.ev.C if winner.ev else None,
+               "S_confirmed": ev.S if ev else None, "C_confirmed": ev.C if ev else None,
+               "k": self.cfg.confirm_trials, "confirmed": bool(ev and held)}
+        path = self.runs / "confirmations.jsonl"
+        old = ([json.loads(x) for x in path.read_text().splitlines() if x.strip()]
+               if path.exists() else [])
+        old = [r for r in old if (r["t"], r["variant"]) != (t, winner.variant)]  # resumed round
+        path.write_text("".join(json.dumps(r) + "\n" for r in old + [rec]))
 
     def _evaluate(self, t: int, c: Candidate, rdir: Path, ids: list[str]) -> None:
         d, cfg = self.domain, self.cfg

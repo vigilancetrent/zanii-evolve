@@ -60,6 +60,9 @@ search moves* instead.
 
 - A critic screens every diff for task-specific logic before any evaluation is spent on it.
 - A noise-adjusted floor rejects gains that sit inside evaluation variance.
+- The round's winner is measured again on fresh trials before it is accepted. The best of several noisy
+  measurements is biased upward (the winner's curse), so only the fresh, unbiased measurement decides,
+  and it becomes the incumbent's score. A winner that does not hold up is recorded `UNCONFIRMED`.
 - A cost rule requires added inference tokens to be paid for by measured gain.
 - Components that stop contributing are flagged for pruning.
 
@@ -74,6 +77,8 @@ Each rule maps to one place in the code:
 | Leakage critic | `zanii_evolve/critic.py` (domain denylist plus LLM review, bounded repair) |
 | Noise floor, cost rule, score or cost objective | `zanii_evolve/selection.py` |
 | Noise band calibration | `zanii_evolve/calibrate.py` (bootstrap over base trials, or repeated base runs) |
+| Confirmation run (winner's curse) | `selection.confirm`, run by `Run._confirm` in `loop.py` (`confirm_k`, default `k`; 0 is off) |
+| Judge gate | `zanii_evolve/judgecal.py` (`gate`, `record`; `min_judge_kappa`) |
 | Non-compensatory domain guards | `Domain.guards` (for example a valid-rate drop in engineering design) |
 
 ## Install
@@ -179,6 +184,30 @@ come first, duplicates are dropped, emails, phone numbers and card-like numbers
 are redacted, and re-running on the same file adds nothing. Production outputs
 are never copied into a task.
 
+**From a Zanii Blackbox gateway.** If your agents run behind
+[Zanii Blackbox](https://pypi.org/project/zanii-blackbox/), mint tasks straight
+from one agent's recorded runs:
+
+```bash
+BLACKBOX_API_KEY=... python zanii_evolve.py --domain acme ingest-blackbox \
+    --url https://blackbox.example.com --label refunds --rubric "Answers the question"
+```
+
+It reads the label's newest closed runs (`--limit` runs read, at most 1,000; a
+run whose model calls carry no user text gives no task) through Blackbox's API
+with the admin key, because it reads request bodies, eight at a time. The user's
+ask in each run's first model request becomes the brief, redacted again here
+after the gateway's own redaction. What Blackbox found the agent itself doing
+wrong in that run (a success the record contradicts, an unsupported fact, a
+secret sent out; by the finding's family in the gateway's catalogue, not its
+bookkeeping such as a silent SDK) becomes a pass/fail criterion of its own, next
+to your rubric, and marks the run as one that went wrong. A run the gateway can't
+answer for is skipped and counted. Runs that failed come first, the same
+ask is kept once, nothing the agent answered is copied, and each task names its
+Blackbox session so you can open the evidence. When the improved harness ships,
+the agent can name the certificate's digest in Blackbox
+(`session.selfChange("prompt", {certificate})`) so its live numbers sit next to it.
+
 **Red-team split.** Each variant embeds an instruction carrying a unique canary
 string that the deliverable must not contain, keeps the original checks, and
 lives in its own `redteam` split: `heldout --label rt --set redteam`.
@@ -191,6 +220,11 @@ python zanii_evolve.py --domain acme judge-agreement --labels human.jsonl
 ```
 
 It reports raw agreement, Cohen's kappa and per-criterion agreement, weakest first.
+With `--record` the result is kept, and the certificate names the judge model and
+its kappa. Setting `"min_judge_kappa": 0.6` in the domain's `zanii_evolve.json`
+(or `--min-judge-kappa 0.6`) turns that into a gate: `baseline`, `round`, `run`
+and `heldout` refuse to measure until a recorded agreement for the same judge
+model reaches it.
 
 **Custom domains.** Anything else is one module, `domains/<name>/adapter.py`,
 exporting a `zanii_evolve.domain.Domain` that runs and scores a harness, renders
@@ -208,7 +242,10 @@ python zanii_evolve.py --domain acme publish               # harness archive + c
 
 A certificate records the incumbent against H0, the noise band, every accepted
 edit with its hypothesis and measured score and cost change, the outcome of
-every candidate, and every held-out evaluation. It carries a sha256 digest of
+every candidate, and every held-out evaluation. Since schema 2 it also lists
+every confirmation run (the selected score next to the fresh one, and whether it
+held), the average amount by which selected scores overstated confirmed ones,
+and the rubric judge as checked against people. It carries a sha256 digest of
 its body, so any edit after issue is detected.
 
 Signing comes in two strengths:
@@ -305,6 +342,7 @@ on the command line (`--T`, `--k`, `--m`, `--delta`, `--beta0`, `--beta1`,
 | `ZANII_EVOLVE_REGISTRY` | registry location (default `./registry`) |
 | `ZANII_EVOLVE_API_TOKEN` | API control and non-loopback binds |
 | `ZANII_EVOLVE_MEMORY` | `zaniidb` (default) or `jsonl` |
+| `BLACKBOX_API_KEY` | admin key of the Zanii Blackbox gateway `ingest-blackbox` reads |
 
 Keep keys in the environment or a secrets manager. `runs/`, `registry/` and
 identity files are ignored by git.
@@ -314,7 +352,7 @@ identity files are ignored by git.
 ```
 smoke | baseline | calibrate | round | run | status | readjudicate | reevaluate | heldout
 pareto | report | verify-report | verify-receipts | publish | registry | identity
-init-domain | import-tasks | ingest-traces | redteam | judge-agreement | lessons | serve
+init-domain | import-tasks | ingest-traces | ingest-blackbox | redteam | judge-agreement | lessons | serve
 ```
 
 `python zanii_evolve.py --help` lists every option.

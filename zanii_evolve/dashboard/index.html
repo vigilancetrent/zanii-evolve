@@ -226,8 +226,8 @@ function banner(msg, kind = "err") {
 function clearBanner() { $("banner").className = "banner"; }
 
 function outcomeBadge(o) {
-  const cls = o === "ACCEPTED" ? "b-acc" : o === "LOST" ? "b-lost" : o === "REJECTED" ? "b-rej" : "b-gate";
-  const label = { ACCEPTED: "Accepted", LOST: "Lost", REJECTED: "Rejected", critic_reject: "Critic rejected",
+  const cls = o === "ACCEPTED" ? "b-acc" : o === "LOST" || o === "UNCONFIRMED" ? "b-lost" : o === "REJECTED" ? "b-rej" : "b-gate";
+  const label = { ACCEPTED: "Accepted", LOST: "Lost", REJECTED: "Rejected", UNCONFIRMED: "Did not hold up", critic_reject: "Critic rejected",
                   smoke_fail: "Smoke failed", not_evaluated: "Not evaluated" }[o] || String(o || "—").replace(/_/g, " ");
   return h("span", { class: "badge " + cls }, label);
 }

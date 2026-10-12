@@ -37,6 +37,11 @@ For every screened candidate H' with measurement (S', C'):
     H_{t+1} = argmax_{H' admissible} S',  or H_t if none is admissible
               (objective "cost": argmin_{H' admissible} C' instead)
     S*      = max(S*, S_{t+1})
+
+Confirmation (zanii-evolve 0.2): the argmax of m noisy measurements is biased
+upward, so the winner is measured again on fresh trials and judged by the same
+rule on that measurement alone. It is accepted only if it is still admissible,
+and S_{t+1} is the confirmed S, never the selected one.
 """
 
 from __future__ import annotations
@@ -141,3 +146,20 @@ def select_round(cands: list[Candidate], incumbent: EvalResult, S_star: float,
     else:
         winner, _ = max(adm, key=lambda cd: cd[1].S)
     return winner, decisions
+
+
+def confirm(winner: Candidate, confirm_ev: EvalResult, incumbent: EvalResult,
+            S_star: float, delta: float, cfg, incumbent_counts: dict,
+            guard_fn=None) -> Decision:
+    """The winner judged again on its confirmation run: the same floor, cost rule
+    and guards, on the fresh measurement only."""
+    again = Candidate(winner.variant, winner.edits, ev=confirm_ev)
+    g = guard_fn(incumbent, confirm_ev) if guard_fn else []
+    d = judge(again, incumbent, S_star, delta, cfg, incumbent_counts, g)
+    selected = winner.ev.S if winner.ev is not None else float("nan")
+    d.reason = (f"confirmed on fresh trials: S {selected:.4f} -> {confirm_ev.S:.4f}; "
+                + d.reason if d.admissible else
+                f"not confirmed on fresh trials: S {selected:.4f} -> {confirm_ev.S:.4f}; "
+                + d.reason)
+    return d
+

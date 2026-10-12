@@ -49,7 +49,7 @@ from pathlib import Path
 
 from .components import K
 
-MEASURED_OUTCOMES = ("ACCEPTED", "REJECTED", "LOST")
+MEASURED_OUTCOMES = ("ACCEPTED", "REJECTED", "LOST", "UNCONFIRMED")
 
 
 class History:
