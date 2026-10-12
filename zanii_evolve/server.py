@@ -26,6 +26,7 @@ Read endpoints (JSON unless noted):
     GET  /api/domains/<d>/pareto              score/cost Pareto frontier
     GET  /api/domains/<d>/report              generalization certificate
     GET  /api/registry                        published harnesses (manifests)
+    GET  /api/registry/<d>/<commit>/manifest.json | harness.tar.gz   one published harness
 Control endpoints (Authorization: Bearer $ZANII_EVOLVE_API_TOKEN):
     POST /api/domains/<d>/start  {"cmd": "baseline" | "run" | "smoke"}
     POST /api/domains/<d>/stop   touches runs/<d>/STOP (stops after the round)
@@ -70,6 +71,8 @@ DASHBOARD = Path(__file__).resolve().parent / "dashboard" / "index.html"
 _NAME = re.compile(r"^[a-z][a-z0-9_]{0,40}$")
 _VARIANT = re.compile(r"^[A-Z]$")
 _LOOPBACK = {"127.0.0.1", "localhost", "::1"}
+_COMMIT = re.compile(r"^[0-9a-f]{7,40}$")
+_ARTIFACTS = {"manifest.json": "application/json", "harness.tar.gz": "application/gzip"}
 COMMANDS = {"baseline", "run", "smoke"}
 
 
@@ -268,10 +271,12 @@ def make_handler(state: State, allowed_hosts: set[str] | None, read_auth: bool):
 
         # ---- plumbing ------------------------------------------------------
         def _send(self, code: int, body, ctype: str = "application/json"):
-            data = (json.dumps(body, ensure_ascii=False) if ctype == "application/json"
-                    else body).encode("utf-8")
+            data = body if isinstance(body, bytes) else (
+                json.dumps(body, ensure_ascii=False) if ctype == "application/json"
+                else body).encode("utf-8")
             self.send_response(code)
-            self.send_header("Content-Type", f"{ctype}; charset=utf-8")
+            self.send_header("Content-Type", ctype if isinstance(body, bytes)
+                             else f"{ctype}; charset=utf-8")
             self.send_header("Content-Length", str(len(data)))
             self.send_header("Cache-Control", "no-store")
             self.send_header("X-Content-Type-Options", "nosniff")
@@ -317,6 +322,8 @@ def make_handler(state: State, allowed_hosts: set[str] | None, read_auth: bool):
                     return self._send(200, [state.summary(n) for n in state.domains()])
                 if parts == ["api", "registry"]:
                     return self._send(200, registry_entries(state.registry))
+                if len(parts) == 5 and parts[:2] == ["api", "registry"]:
+                    return self._registry_file(*parts[2:])
                 if len(parts) >= 3 and parts[:2] == ["api", "domains"]:
                     name = state.check_domain(parts[2])
                     rest = parts[3:]
@@ -373,6 +380,15 @@ def make_handler(state: State, allowed_hosts: set[str] | None, read_auth: bool):
                 return self._send(400, {"error": str(e)})
             except (RuntimeError, FileExistsError) as e:
                 return self._send(409, {"error": str(e)})
+
+        def _registry_file(self, name: str, commit: str, fname: str):
+            """One published artifact; every path part is checked before use."""
+            if not (_NAME.match(name) and _COMMIT.match(commit) and fname in _ARTIFACTS):
+                return self._send(404, {"error": "not found"})
+            p = state.registry / name / commit[:8] / fname
+            if not p.is_file():
+                return self._send(404, {"error": f"{name}/{commit} is not published"})
+            return self._send(200, p.read_bytes(), _ARTIFACTS[fname])
 
         def _rollout_get(self, name: str, rest: list[str]):
             run_dir = state.runs / name

@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.2 (2026-10-13)
+
+- **`zanii_evolve.client`**, a rollout client for any domain, standard library
+  only. `session()` assigns on entry and reports on exit (an exception counts as a
+  failure). Success can be a bool, a score with a threshold, or your own
+  `success=` rule. If the server is down it falls back to the last stable commit
+  (or `default=`) and never raises. `fetch()` downloads, sha256-verifies and
+  safely unpacks a published harness.
+- **`GET /api/registry/<d>/<commit>/manifest.json | harness.tar.gz`** serves one
+  published harness, with every path part validated.
+
 ## 0.2.1 (2026-10-13)
 
 - **`watch`: continuous evolution.** Ingests a trace file or a Blackbox gateway on

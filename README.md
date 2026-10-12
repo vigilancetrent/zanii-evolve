@@ -266,7 +266,29 @@ curl -X POST "$HOST/api/domains/acme/rollout/outcome" \
      -d '{"key": "'$SESSION_ID'", "commit": "7421c53", "ok": true}'
 ```
 
-The harness for a commit is `registry/<domain>/<commit>/harness.tar.gz`. Every
+From Python, `zanii_evolve.client` does both calls for any domain. It uses only the
+standard library, so it adds nothing to your agent's dependencies:
+
+```python
+from zanii_evolve.client import Rollout
+
+r = Rollout("https://evolve.internal:8765", "acme", token=os.environ["ZANII_EVOLVE_API_TOKEN"],
+            success=lambda o: o["resolved"] and not o["escalated"])
+with r.session(ticket.id) as s:
+    harness = r.fetch(s.commit, "/srv/harnesses")      # downloaded once, sha256-checked
+    s.outcome = run_agent(harness, ticket)               # e.g. {"resolved": True, "escalated": False}
+```
+
+Success means whatever your domain says it means: pass a bool, a score in
+[0, 1] (`threshold=`, default 0.5), or a `success=` function over anything you
+record. A session that raises counts as a failure, and the exception still
+propagates. The client never breaks a session: if the server can't be reached,
+it serves the last stable commit it saw (or `default=`), that session is left
+out of the test, and outcomes it could not deliver are counted in `r.dropped`,
+never raised. Other languages call the same two endpoints.
+
+The harness for a commit is also served at
+`/api/registry/<domain>/<commit>/harness.tar.gz` with its `manifest.json`. Every
 tick tests the canary for harm: because sessions are assigned at random with a
 known share, a canary that is no worse than stable receives at most that share
 of the failures, and a mixture likelihood ratio on where failures land stays
