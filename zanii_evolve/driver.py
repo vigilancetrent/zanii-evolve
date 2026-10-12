@@ -47,7 +47,7 @@ MAX_CONSECUTIVE_INFRA = 3
 def settled_rounds(frontier_path: Path) -> int:
     if not frontier_path.exists():
         return -1
-    fr = json.loads(frontier_path.read_text())
+    fr = json.loads(frontier_path.read_text(encoding="utf-8"))
     return len(fr["trajectory"]) - 1          # trajectory has entries 0..settled
 
 
@@ -62,13 +62,13 @@ def drive(entry: Path, domain: str, runs_dir: Path, T: int, start: int = 0,
                  "--runs", str(runs_dir)] + list(extra_args or [])
     if not fr.exists():
         print(f"[driver:{domain}] baseline + calibrate", flush=True)
-        with open(logs / "baseline.log", "a") as lf:
+        with open(logs / "baseline.log", "a", encoding="utf-8") as lf:
             r = subprocess.run(base_args + ["baseline"], stdout=lf, stderr=subprocess.STDOUT)
         if r.returncode != 0 or not fr.exists():
             print(f"[driver:{domain}] baseline failed (rc={r.returncode})")
             sys.exit(1)
     if not (run_dir / "calibration.json").exists():
-        with open(logs / "calibrate.log", "a") as lf:
+        with open(logs / "calibrate.log", "a", encoding="utf-8") as lf:
             subprocess.run(base_args + ["calibrate"], stdout=lf, stderr=subprocess.STDOUT)
     infra = 0
     for t in range(start, T):
@@ -81,7 +81,7 @@ def drive(entry: Path, domain: str, runs_dir: Path, T: int, start: int = 0,
         log = logs / f"r{t}.log"
         print(f"[driver:{domain}] === round {t} ({time.strftime('%H:%M:%S')}) -> {log}",
               flush=True)
-        with open(log, "a") as lf:
+        with open(log, "a", encoding="utf-8") as lf:
             r = subprocess.run(base_args + ["round", "--t", str(t)],
                                stdout=lf, stderr=subprocess.STDOUT)
         if r.returncode != 0 or settled_rounds(fr) < t + 1:
@@ -93,7 +93,7 @@ def drive(entry: Path, domain: str, runs_dir: Path, T: int, start: int = 0,
                 sys.exit(1)
         else:
             infra = 0
-            b = json.loads(fr.read_text())["incumbent"]
+            b = json.loads(fr.read_text(encoding="utf-8"))["incumbent"]
             print(f"[driver:{domain}]   incumbent t={b['t']} {b['commit']} S={b['S']:.4f}",
                   flush=True)
     print(f"[driver:{domain}] all rounds settled", flush=True)

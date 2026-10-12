@@ -107,7 +107,7 @@ def prepare_rendered(domain, traces: dict, rendered_dir: Path) -> None:
     for tid, rec in traces.items():
         out = rendered_dir / f"{tid}.txt"
         if not out.exists():
-            out.write_text(domain.render_trace(rec, detail=True))
+            out.write_text(domain.render_trace(rec, detail=True), encoding="utf-8")
 
 
 def task_table(domain, traces: dict, per_task: dict) -> str:
@@ -178,7 +178,7 @@ def analyze(domain, traces: dict, per_task: dict, round_dir: Path,
                                 domain.briefs["digester"], r.get("questions"),
                                 model=model)
                 (digests_dir / f"{r['task_id']}_{r.get('lens', 'failure')}.json"
-                 ).write_text(json.dumps(d, ensure_ascii=False, indent=1))
+                 ).write_text(json.dumps(d, ensure_ascii=False, indent=1), encoding="utf-8")
                 return d
             with ThreadPoolExecutor(max_workers=DIGEST_PARALLELISM) as ex:
                 digests = list(ex.map(run, valid))
@@ -200,5 +200,5 @@ def analyze(domain, traces: dict, per_task: dict, round_dir: Path,
 def load_digests(round_dir: Path) -> list:
     dg = round_dir / "analysis" / "digests"
     if dg.exists():
-        return [json.loads(p.read_text()) for p in sorted(dg.glob("*.json"))]
+        return [json.loads(p.read_text(encoding="utf-8")) for p in sorted(dg.glob("*.json"))]
     return []

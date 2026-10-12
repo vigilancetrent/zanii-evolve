@@ -29,6 +29,10 @@ Read endpoints (JSON unless noted):
 Control endpoints (Authorization: Bearer $ZANII_EVOLVE_API_TOKEN):
     POST /api/domains/<d>/start  {"cmd": "baseline" | "run" | "smoke"}
     POST /api/domains/<d>/stop   touches runs/<d>/STOP (stops after the round)
+    POST /api/domains/<d>/rollout/outcome  {"key", "commit", "ok": bool} one live outcome
+Live rollout (see zanii_evolve.rollout; read auth as for every GET):
+    GET  /api/domains/<d>/rollout              state + current-stage counts
+    GET  /api/domains/<d>/rollout/assign?key=K harness commit for session K (sticky)
     POST /api/domains            {"name", "tasks": [...], "heldout": 0.2} creates a brief
                                  domain (tasks validated first; body <= 2 MB)
 
@@ -51,7 +55,9 @@ import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
+
+from zanii_evolve import rollout as RO
 
 from zanii_evolve.pareto import frontier, points
 from zanii_evolve.registry import default_root as default_registry
@@ -298,7 +304,8 @@ def make_handler(state: State, allowed_hosts: set[str] | None, read_auth: bool):
             if not self._host_ok():
                 return self._send(421, {"error": "unexpected Host header"})
             parts = self._route()
-            if read_auth and parts[:1] == ["api"] and parts != ["api", "health"]                     and not self._authorized():
+            if (read_auth and parts[:1] == ["api"] and parts != ["api", "health"]
+                    and not self._authorized()):
                 return self._send(401, {"error": "missing or wrong bearer token"})
             try:
                 if not parts:
@@ -322,6 +329,8 @@ def make_handler(state: State, allowed_hosts: set[str] | None, read_auth: bool):
                             _read_jsonl(state.runs / name / "history.jsonl"))))
                     if rest == ["report"]:
                         return self._send(200, build_report(state.runs / name))
+                    if rest[:1] == ["rollout"]:
+                        return self._rollout_get(name, rest[1:])
                     if rest == ["log"]:
                         return self._send(200, state.log_tail(name), "text/plain")
                     if len(rest) == 4 and rest[0] == "rounds" and rest[3] == "diff":
@@ -335,8 +344,10 @@ def make_handler(state: State, allowed_hosts: set[str] | None, read_auth: bool):
                 return self._send(421, {"error": "unexpected Host header"})
             parts = self._route()
             create = parts == ["api", "domains"]
-            if not (create or (len(parts) == 4 and parts[:2] == ["api", "domains"]
-                               and parts[3] in ("start", "stop"))):
+            outcome = (len(parts) == 5 and parts[:2] == ["api", "domains"]
+                       and parts[3:] == ["rollout", "outcome"])
+            if not (create or outcome or (len(parts) == 4 and parts[:2] == ["api", "domains"]
+                                          and parts[3] in ("start", "stop"))):
                 return self._send(404, {"error": "not found"})
             if not state.token:
                 return self._send(403, {"error": "control is disabled: start the server "
@@ -347,6 +358,8 @@ def make_handler(state: State, allowed_hosts: set[str] | None, read_auth: bool):
                 if create:
                     return self._create_domain()
                 name = state.check_domain(parts[2])
+                if outcome:
+                    return self._rollout_outcome(name)
                 if parts[3] == "stop":
                     return self._send(200, state.stop(name))
                 n = int(self.headers.get("Content-Length") or 0)
@@ -360,6 +373,37 @@ def make_handler(state: State, allowed_hosts: set[str] | None, read_auth: bool):
                 return self._send(400, {"error": str(e)})
             except (RuntimeError, FileExistsError) as e:
                 return self._send(409, {"error": str(e)})
+
+        def _rollout_get(self, name: str, rest: list[str]):
+            run_dir = state.runs / name
+            st = RO.load(run_dir)
+            if st is None:
+                raise LookupError(f"no rollout for {name}")
+            if rest == ["assign"]:
+                key = (parse_qs(urlparse(self.path).query).get("key") or [""])[0]
+                if not 0 < len(key) <= 200:
+                    return self._send(400, {"error": "key (1-200 chars) is required"})
+                return self._send(200, RO.assign(st, key))
+            if rest:
+                return self._send(404, {"error": "not found"})
+            view = {k: v for k, v in st.items() if k != "history"}
+            view["counts"] = RO.counts(run_dir, st) if st["status"] == "running" else None
+            view["last_decisions"] = st["history"][-5:]
+            return self._send(200, view)
+
+        def _rollout_outcome(self, name: str):
+            n = int(self.headers.get("Content-Length") or 0)
+            if n > 10_000:
+                return self._send(413, {"error": "body too large"})
+            body = json.loads(self.rfile.read(n) or b"{}")
+            run_dir = state.runs / name
+            with state.lock:                   # one writer at a time on the outcomes file
+                st = RO.load(run_dir)
+                if st is None:
+                    raise LookupError(f"no rollout for {name}")
+                row = RO.record(run_dir, st, body.get("key"), str(body.get("commit", "")),
+                                body.get("ok"))
+            return self._send(200, row)
 
         def _create_domain(self):
             n = int(self.headers.get("Content-Length") or 0)

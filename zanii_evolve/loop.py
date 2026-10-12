@@ -95,16 +95,16 @@ class Run:
     def frontier(self) -> dict:
         if not self.frontier_path.exists():
             raise SystemExit(f"no {self.frontier_path}; run `baseline` first")
-        return json.loads(self.frontier_path.read_text())
+        return json.loads(self.frontier_path.read_text(encoding="utf-8"))
 
     def save_frontier(self, fr: dict) -> None:
-        self.frontier_path.write_text(json.dumps(fr, indent=1))
+        self.frontier_path.write_text(json.dumps(fr, indent=1), encoding="utf-8")
 
     def delta(self) -> float:
         if self.cfg.delta is not None:
             return float(self.cfg.delta)
         if self.calibration_path.exists():
-            return float(json.loads(self.calibration_path.read_text())["delta"])
+            return float(json.loads(self.calibration_path.read_text(encoding="utf-8"))["delta"])
         raise SystemExit("no noise band: set cfg.delta or run `calibrate`")
 
     def eval_path(self, job: str) -> Path:
@@ -153,8 +153,8 @@ class Run:
     def scoreboard(self) -> list:
         if not self.attribution_path.exists():
             return []
-        rows = [json.loads(l) for l in self.attribution_path.read_text().splitlines()
-                if l.strip()]
+        rows = [json.loads(l) for l in
+                self.attribution_path.read_text(encoding="utf-8").splitlines() if l.strip()]
         return rows[-20:]
 
     def attribute(self, t: int, variant: str, edits: list, inc: EvalResult,
@@ -173,7 +173,7 @@ class Run:
                          "n_predicted": len(pred), "predicted_hit": hits,
                          "hit_rate": round(len(hits) / len(pred), 2) if pred else None,
                          "unpredicted_regressions": [d for d in drops if d not in pred][:12]})
-        with open(self.attribution_path, "a") as f:
+        with open(self.attribution_path, "a", encoding="utf-8") as f:
             for r in rows:
                 f.write(json.dumps(r, ensure_ascii=False) + "\n")
         return rows
@@ -253,19 +253,21 @@ class Run:
             raise SystemExit(f"only {len(traces)} traces available from {inc['job']}")
         report_path = rdir / "analysis_report.json"
         if report_path.exists():
-            report = json.loads(report_path.read_text())
+            report = json.loads(report_path.read_text(encoding="utf-8"))
             log(d.name, "reusing analysis_report.json")
         else:
-            prior = (json.loads(self.global_analysis.read_text())
+            prior = (json.loads(self.global_analysis.read_text(encoding="utf-8"))
                      if self.global_analysis.exists() else {})
             report = analyze(d, traces, inc_ev.per_task, rdir,
                              prior_modes=prior.get("failure_modes"),
                              prior_habits=prior.get("success_habits"),
                              model=cfg.analyst_model)
-            report_path.write_text(json.dumps(report, ensure_ascii=False, indent=1))
+            report_path.write_text(json.dumps(report, ensure_ascii=False, indent=1),
+                                   encoding="utf-8")
         self.global_analysis.write_text(json.dumps(
             {"failure_modes": report.get("failure_modes"),
-             "success_habits": report.get("success_habits")}, ensure_ascii=False, indent=1))
+             "success_habits": report.get("success_habits")}, ensure_ascii=False, indent=1),
+            encoding="utf-8")
         log(d.name, f"top modes: {[m.get('mode') for m in report.get('failure_modes', [])[:5]]}")
         if dry_run:
             log(d.name, "dry-run: stopping before propose")
@@ -286,7 +288,7 @@ class Run:
         (rdir / "directives.json").write_text(json.dumps(
             {"t": t, "b_t": budget, "sigma_t": sigma, "tried": sorted(tried),
              "explore": explore, "prune_set": prune, "delta": delta,
-             "S_star": fr["S_star"]}, indent=1))
+             "S_star": fr["S_star"]}, indent=1), encoding="utf-8")
 
         # 4) draw and screen m candidates
         cands: list[Candidate] = []
@@ -311,7 +313,7 @@ class Run:
             winner, decisions = self._confirm(t, winner, cands, decisions, rdir, ids,
                                               inc_ev, fr["S_star"], delta, counts)
         (rdir / "decisions.json").write_text(json.dumps(
-            [x.to_json() for x in decisions], indent=1))
+            [x.to_json() for x in decisions], indent=1), encoding="utf-8")
         for c, dec in zip(cands, decisions):
             if self.history.has(t, c.variant):
                 continue                      # resumed round: already recorded
@@ -373,7 +375,7 @@ class Run:
         rdir = self.runs / f"r{t}"
         cands = []
         for vdir in sorted(p for p in rdir.iterdir() if p.is_dir() and len(p.name) == 1):
-            prep = (json.loads((vdir / "prep.json").read_text())
+            prep = (json.loads((vdir / "prep.json").read_text(encoding="utf-8"))
                     if (vdir / "prep.json").exists() else {})
             c = Candidate(vdir.name, prep.get("edits") or [], diff_path=prep.get("diff_path"),
                           branch=prep.get("branch"), commit=prep.get("commit"),
@@ -403,7 +405,7 @@ class Run:
                 if not decisions[i].admissible:
                     winner = None
         (rdir / "decisions.json").write_text(json.dumps(
-            [x.to_json() for x in decisions], indent=1))
+            [x.to_json() for x in decisions], indent=1), encoding="utf-8")
         self.history.replace_round(t)
         for c, dec in zip(cands, decisions):
             if c.ev is None:
@@ -456,7 +458,7 @@ class Run:
         for vdir in sorted(p for p in rdir.iterdir() if p.is_dir() and len(p.name) == 1):
             if variants and vdir.name not in variants:
                 continue
-            prep = (json.loads((vdir / "prep.json").read_text())
+            prep = (json.loads((vdir / "prep.json").read_text(encoding="utf-8"))
                     if (vdir / "prep.json").exists() else {})
             if not prep.get("commit") or not G.branch_exists(self.repo, prep.get("branch", "")):
                 log(d.name, f"r{t}{vdir.name}: no committed candidate to re-evaluate")
@@ -485,7 +487,7 @@ class Run:
         prep_path = vdir / "prep.json"
         # resume: candidate already drafted and committed in an earlier attempt
         if prep_path.exists():
-            prep = json.loads(prep_path.read_text())
+            prep = json.loads(prep_path.read_text(encoding="utf-8"))
             if prep.get("gate_failure"):
                 return Candidate(vid, prep.get("edits") or [], gate_failure=prep["gate_failure"],
                                  detail=prep.get("detail", ""),
@@ -506,7 +508,7 @@ class Run:
         def finish(gate_failure: str, detail: str = "", edits=None, diff_path=None):
             prep_path.write_text(json.dumps(
                 {"gate_failure": gate_failure, "detail": detail, "edits": edits or [],
-                 "diff_path": diff_path}, ensure_ascii=False, indent=1))
+                 "diff_path": diff_path}, ensure_ascii=False, indent=1), encoding="utf-8")
             G.worktree_remove(self.repo, wt, branch)
             log(d.name, f"{vid}: {gate_failure} {detail[:200]}")
             return Candidate(vid, edits or [], gate_failure=gate_failure, detail=detail,
@@ -516,7 +518,8 @@ class Run:
                        explore, reserved, prune, traces=traces, per_task=inc_ev.per_task,
                        findings=digests, scoreboard=self.scoreboard(),
                        variant_brief=variant_brief, model=cfg.proposer_model)
-        (vdir / "proposal.json").write_text(json.dumps(prop, ensure_ascii=False, indent=1))
+        (vdir / "proposal.json").write_text(json.dumps(prop, ensure_ascii=False, indent=1),
+                                             encoding="utf-8")
         if prop["status"] != "done" or prop["n_edits"] == 0:
             return finish("no_proposal", str(prop.get("reason") or prop["status"]))
 
@@ -524,7 +527,7 @@ class Run:
         verdict, diff = None, ""
         for attempt in range(1 + cfg.repair_rounds):
             diff = G.diff_with_new_files(wt, self.harness_rel)
-            (vdir / "diff.patch").write_text(diff)
+            (vdir / "diff.patch").write_text(diff, encoding="utf-8")
             verdict = review(d, diff, prop.get("mechanism") or "",
                              prop.get("targets_mode") or "", edits=prop.get("edits"),
                              model=cfg.critic_model)
@@ -553,7 +556,8 @@ class Run:
                                            f"from {explore['untried']}, judged by the DIFF, and "
                                            f"none is"],
                                "risk_notes": verdict.get("risk_notes")}
-            (vdir / f"critic_a{attempt}.json").write_text(json.dumps(verdict, indent=1))
+            (vdir / f"critic_a{attempt}.json").write_text(json.dumps(verdict, indent=1),
+                                                          encoding="utf-8")
             if verdict.get("verdict") == "accept" or attempt >= cfg.repair_rounds:
                 break
             log(d.name, f"{vid}: critic objections (repair {attempt + 1}/"
@@ -567,10 +571,10 @@ class Run:
                                          "your_declared_edits": prop.get("edits")},
                            model=cfg.proposer_model)
             (vdir / f"proposal_r{attempt + 1}.json").write_text(
-                json.dumps(prop, ensure_ascii=False, indent=1))
+                json.dumps(prop, ensure_ascii=False, indent=1), encoding="utf-8")
             if prop["status"] != "done":
                 break
-        (vdir / "critic.json").write_text(json.dumps(verdict, indent=1))
+        (vdir / "critic.json").write_text(json.dumps(verdict, indent=1), encoding="utf-8")
         edits = prop.get("edits") or []
         if not verdict or verdict.get("verdict") != "accept":
             return finish("critic_reject", str((verdict or {}).get("reasons"))[:600],
@@ -578,7 +582,7 @@ class Run:
 
         # tag (l', h', d'): validate the declared component against the diff
         diff = G.diff_with_new_files(wt, self.harness_rel)
-        (vdir / "diff.patch").write_text(diff)
+        (vdir / "diff.patch").write_text(diff, encoding="utf-8")
         for e in edits:
             e["component"] = normalize(e.get("component"), diff, d.component_signals)
         commit = G.commit_path(wt, self.harness_rel,
@@ -587,14 +591,15 @@ class Run:
         # liveness smoke: does the candidate run at all (not a selection rule)
         ok, detail = d.smoke(wt, self.runs, f"r{t}{vid}_smoke",
                              d.smoke_ids(inc_ev.per_task))
-        (vdir / "smoke.json").write_text(json.dumps({"ok": ok, **detail}, indent=1))
+        (vdir / "smoke.json").write_text(json.dumps({"ok": ok, **detail}, indent=1),
+                                          encoding="utf-8")
         if not ok:
             return finish("smoke_fail", json.dumps(detail)[:600], edits,
                           str(vdir / "diff.patch"))
         prep_path.write_text(json.dumps(
             {"commit": commit, "branch": branch, "edits": edits,
              "diff_path": str(vdir / "diff.patch"), "mechanism": prop.get("mechanism")},
-            ensure_ascii=False, indent=1))
+            ensure_ascii=False, indent=1), encoding="utf-8")
         log(d.name, f"{vid}: {len(edits)} edit(s) on "
             f"{[e['component'] for e in edits]} -> {commit}")
         return Candidate(vid, edits, diff_path=str(vdir / "diff.patch"),
@@ -651,10 +656,10 @@ class Run:
                "S_confirmed": ev.S if ev else None, "C_confirmed": ev.C if ev else None,
                "k": self.cfg.confirm_trials, "confirmed": bool(ev and held)}
         path = self.runs / "confirmations.jsonl"
-        old = ([json.loads(x) for x in path.read_text().splitlines() if x.strip()]
+        old = ([json.loads(x) for x in path.read_text(encoding="utf-8").splitlines() if x.strip()]
                if path.exists() else [])
         old = [r for r in old if (r["t"], r["variant"]) != (t, winner.variant)]  # resumed round
-        path.write_text("".join(json.dumps(r) + "\n" for r in old + [rec]))
+        path.write_text("".join(json.dumps(r) + "\n" for r in old + [rec]), encoding="utf-8")
 
     def _evaluate(self, t: int, c: Candidate, rdir: Path, ids: list[str]) -> None:
         d, cfg = self.domain, self.cfg

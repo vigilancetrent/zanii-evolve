@@ -54,6 +54,8 @@
   python3 zanii_evolve.py --domain clients ingest-traces prod.jsonl --rubric "Answers|No made-up facts"
   BLACKBOX_API_KEY=... python3 zanii_evolve.py --domain clients ingest-blackbox --url https://blackbox.example.com --label refunds
   python3 zanii_evolve.py --domain clients judge-agreement --labels human.jsonl --record   # for --min-judge-kappa
+  python3 zanii_evolve.py --domain clients watch --traces prod.jsonl --rubric "Answers" [--every 3600] [--once]
+                                                              # ingest -> evolve -> certify -> publish, on a schedule
   python3 zanii_evolve.py serve [--host 127.0.0.1 --port 8765]  # service API + dashboard
 
 Hyperparameters come from domains/<domain>/zanii_evolve.json; any of them can be
@@ -65,7 +67,11 @@ overridden on the command line (--T, --k, --m, --b-min, --b-max, --w,
 import argparse
 import json
 import os
+import shlex
+import shutil
+import subprocess
 import sys
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
@@ -174,7 +180,7 @@ def lessons_cmd(name: str, action: str, files: list[str], out: str | None,
           f"(delete the file to opt out). Re-run `baseline` so H_0 is measured with it.")
 
 
-def ingest_traces(name: str, path: str, rubric: str, limit: int, heldout: float) -> None:
+def ingest_traces(name: str, path: str, rubric: str, limit: int, heldout: float) -> int:
     from zanii_evolve import tasksets as TS
     d = ROOT / "domains" / name
     if not (d / "tasks.jsonl").is_file():
@@ -189,13 +195,14 @@ def ingest_traces(name: str, path: str, rubric: str, limit: int, heldout: float)
         n = TS.write_tasks(d, TS.assign_splits(rows, heldout)) if rows else len(known)
     except (ValueError, OSError) as e:
         sys.exit(f"ingest failed, tasks.jsonl unchanged: {e}")
+    bad = sum(1 for r in rows if TS._failed(r["notes"]["feedback"]))
     print(f"{name}: minted {len(rows)} tasks from {len(recs)} traces "
-          f"({sum(1 for r in rows if TS._failed(r['notes']['feedback']))} with negative "
-          f"feedback), {n} in tasks.jsonl")
+          f"({bad} with negative feedback), {n} in tasks.jsonl")
+    return bad
 
 
 def ingest_blackbox(name: str, url: str, label: str, rubric: str, limit: int,
-                    heldout: float) -> None:
+                    heldout: float) -> int:
     """Brief tasks from a Zanii Blackbox gateway's record of one agent's runs."""
     from zanii_evolve import blackbox as BB
     from zanii_evolve import tasksets as TS
@@ -218,10 +225,214 @@ def ingest_blackbox(name: str, url: str, label: str, rubric: str, limit: int,
         n = TS.write_tasks(d, TS.assign_splits(rows, heldout)) if rows else len(known)
     except (ValueError, OSError, RuntimeError) as e:
         sys.exit(f"ingest failed, tasks.jsonl unchanged: {e}")
+    bad = sum(1 for r in rows if r["notes"]["feedback"] == "bad")
     print(f"{name}: minted {len(rows)} tasks from {len(runs)} runs of {label!r} "
-          f"({sum(1 for r in rows if r['notes']['feedback'] == 'bad')} that went wrong), "
-          f"{n} in tasks.jsonl"
+          f"({bad} that went wrong), {n} in tasks.jsonl"
           + (f"; {unreadable} runs could not be read and were skipped" if unreadable else ""))
+    return bad
+
+
+# one cycle's evidence; receipts, the judge record, memory and logs carry across cycles
+CYCLE_FILES = ("frontier.json", "calibration.json", "history.jsonl", "attribution.jsonl",
+               "confirmations.jsonl")
+
+
+def archive_cycle(run_dir: Path, dest: Path) -> None:
+    """Move a finished cycle's evidence to dest so the next cycle starts from a
+    fresh baseline: new tasks change D_evolve, and scores on different task sets
+    never compare."""
+    dest.mkdir(parents=True, exist_ok=True)
+    for p in ([run_dir / f for f in CYCLE_FILES] + sorted(run_dir.glob("r[0-9]*"))
+              + [run_dir / "jobs"]):
+        if p.exists():
+            shutil.move(str(p), str(dest / p.name))
+
+
+def _cli(args: list[str], log: Path) -> int:
+    """This command line in a subprocess, so the judge gate and overrides apply."""
+    log.parent.mkdir(parents=True, exist_ok=True)
+    with open(log, "a", encoding="utf-8") as lf:
+        return subprocess.run([sys.executable, str(Path(__file__).resolve())] + args,
+                              stdout=lf, stderr=subprocess.STDOUT, check=False).returncode
+
+
+def _backoff(every: float, failures: int) -> float:
+    """Seconds before retry number `failures`: every, 2x, 4x ... capped at a day."""
+    return min(86400.0, every * 2 ** max(0, failures - 1))
+
+
+def _hook(cmd: str | None, env: dict, timeout: float) -> dict:
+    """Run a user hook without a shell; Windows splits a command string itself."""
+    if not cmd:
+        return {}
+    try:
+        r = subprocess.run(cmd if os.name == "nt" else shlex.split(cmd),
+                           env={**os.environ, **env}, timeout=timeout, check=False)
+        return {"rc": r.returncode}
+    except (OSError, ValueError, subprocess.TimeoutExpired) as e:
+        return {"error": str(e)}
+
+
+def watch_tick(args, cfg_T: int, extra: list[str]) -> dict:
+    """One pass of continuous evolution:
+      1. move a live rollout on (advance, promote, or roll back on harm),
+      2. retry a publish that failed, with backoff,
+      3. ingest; once enough new failures have built up, run a cycle (fresh
+         baseline + T rounds), retried with backoff and abandoned after
+         --max-cycle-failures,
+      4. certify, publish and start a staged rollout of a gain above the noise band.
+    """
+    from zanii_evolve import rollout as RO
+    runs_root = Path(args.runs)
+    run_dir = runs_root / args.domain
+    run_dir.mkdir(parents=True, exist_ok=True)
+    sp = run_dir / "watch.json"
+    st = {"pending": 0, "cycles": 0, "active": None, "failures": 0, "retry_at": 0.0,
+          "publish": None, "log": []}
+    if sp.exists():
+        st.update(json.loads(sp.read_text(encoding="utf-8")))
+
+    def save(event: dict) -> dict:
+        event["at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        if event["event"] != "waiting":            # everything else is worth a page
+            event.update({f"on_event_{k}": v for k, v in _hook(
+                args.on_event, {"ZANII_EVOLVE_EVENT": json.dumps(event)},
+                args.hook_timeout).items()})
+        st["log"] = (st["log"] + [event])[-200:]
+        sp.write_text(json.dumps(st, indent=1), encoding="utf-8")
+        print(f"[watch:{args.domain}] {json.dumps(event)}", flush=True)
+        return st
+
+    def ship(n: int, cert: dict) -> dict:
+        """Publish (raises on failure), then the publish hook and the rollout."""
+        from zanii_evolve import registry as REG
+        root = REG.default_root(ROOT)
+        manifest = REG.publish(ROOT, run_dir, os.path.normpath(
+            f"domains/{args.domain}/{load_domain(args.domain).harness_path}"), root)
+        out = {"published": True, "commit": manifest["commit"]}
+        path = root / args.domain / str(manifest["commit"])[:8] / "manifest.json"
+        out.update({f"on_publish_{k}": v for k, v in _hook(
+            args.on_publish, {"ZANII_EVOLVE_MANIFEST": str(path)}, args.hook_timeout).items()})
+        stable = cert["baseline"]["commit"]
+        if args.rollout and stable and stable != manifest["commit"]:
+            RO.start(run_dir, stable, manifest["commit"], args.rollout, args.rollout_alpha,
+                     args.rollout_min_requests, cycle=n)
+            out["rollout"] = {"stable": stable, "canary": manifest["commit"],
+                              "shares": args.rollout}
+        return out
+
+    # 1) a live rollout decides before anything else can change the branch
+    rs = RO.load(run_dir)
+    if rs and rs["status"] == "running":
+        verdict, ev = RO.decide(run_dir, rs, args.stall_hours)
+        if verdict != "wait":
+            arms = {"canary_commit": rs["canary"], "stable_commit": rs["stable"]}
+            rs = RO.apply(run_dir, rs, verdict, ev)
+            if verdict == "rollback":              # the next cycle starts from the stable harness
+                G.git(ROOT, "update-ref", f"refs/heads/evolve/{args.domain}", rs["stable"],
+                      check=True)
+            save({"event": f"rollout_{verdict}", **arms, **ev})
+    rolling = bool(rs and rs["status"] == "running")
+
+    # 2) a certified gain that failed to publish is retried before any new cycle
+    pub = st["publish"]
+    if pub:
+        if time.time() < pub["next_at"]:
+            return st
+        n = pub["cycle"]
+        try:
+            from zanii_evolve import report as R
+            out = ship(n, R.build(run_dir))
+        except (LookupError, RuntimeError, ValueError, OSError) as e:
+            pub["attempts"] += 1
+            if pub["attempts"] >= args.max_retries:
+                st["publish"] = None
+                return save({"event": "publish_gave_up", "cycle": n, "error": str(e),
+                             "note": "run `publish` by hand once the cause is fixed"})
+            pub["next_at"] = time.time() + _backoff(args.every, pub["attempts"])
+            return save({"event": "publish_failed", "cycle": n, "error": str(e),
+                         "attempts": pub["attempts"]})
+        st["publish"] = None
+        return save({"event": "publish_retried", "cycle": n, **out})
+
+    # 3) ingest; an open cycle finishes on the task set its baseline measured
+    if st["active"] is None:
+        try:                   # the ingest helpers sys.exit on a bad source; a tick survives it
+            if args.traces:
+                new = ingest_traces(args.domain, args.traces, args.rubric, args.limit,
+                                    args.heldout)
+            else:
+                new = ingest_blackbox(args.domain, args.blackbox_url, args.label, args.rubric,
+                                      args.limit, args.heldout)
+        except SystemExit as e:
+            return save({"event": "ingest_failed", "error": str(e)})
+        st["pending"] += new
+        if st["pending"] < args.min_failures or rolling:
+            return save({"event": "waiting", "new_failures": new, "pending": st["pending"],
+                         "rollout_running": rolling})
+    elif time.time() < st["retry_at"]:
+        return st                                  # backing off after a failed attempt
+
+    n = st["active"] or st["cycles"] + 1
+    if st["active"] is None:                       # a resumed cycle keeps its settled rounds
+        if (run_dir / "frontier.json").exists():
+            archive_cycle(run_dir, run_dir / "cycles" / f"c{n - 1}")
+        st.update(active=n, pending=0, failures=0, retry_at=0.0)
+        save({"event": "cycle_started", "cycle": n})
+    from zanii_evolve.driver import settled_rounds
+    err = None
+    try:
+        drive(Path(__file__).resolve(), args.domain, runs_root, cfg_T, 0, extra_args=extra)
+    except SystemExit as e:                        # baseline, or 3 rounds in a row, failed
+        err = str(e)
+    if (run_dir / "STOP").exists():
+        return save({"event": "stopped", "cycle": n})
+    if err is not None or settled_rounds(run_dir / "frontier.json") < cfg_T:
+        st["failures"] += 1
+        why = err or "rounds did not all settle, see logs/r*.log"
+        if st["failures"] >= args.max_cycle_failures:
+            fr = run_dir / "frontier.json"
+            base = (json.loads(fr.read_text(encoding="utf-8"))["trajectory"][0]["commit"]
+                    if fr.exists() else None)
+            if base:                               # undo rounds accepted in an uncertified cycle
+                G.git(ROOT, "update-ref", f"refs/heads/evolve/{args.domain}", base, check=True)
+            archive_cycle(run_dir, run_dir / "cycles" / f"c{n}-abandoned")
+            st.update(active=None, failures=0, retry_at=0.0)
+            return save({"event": "cycle_abandoned", "cycle": n, "error": why,
+                         "branch_reset_to": base})
+        st["retry_at"] = time.time() + _backoff(args.every, st["failures"])
+        return save({"event": "cycle_failed", "cycle": n, "error": why,
+                     "failures": st["failures"], "retry_in_s": st["retry_at"] - time.time()})
+
+    from zanii_evolve import report as R
+    st.update(active=None, cycles=n, failures=0, retry_at=0.0)
+    cert = R.build(run_dir)
+    result = {"event": "cycle_done", "cycle": n, "gain": cert["gain"],
+              "noise_band": cert["noise_band"], "published": False}
+    if not cert["gain_exceeds_noise"]:
+        return save(result)                        # inside the noise band: nothing ships
+    result["heldout_rc"] = _cli(                   # rc 1 also covers "no heldout split"
+        ["--domain", args.domain, "--runs", str(runs_root)] + extra
+        + ["heldout", "--label", f"c{n}"], run_dir / "logs" / f"watch_c{n}.log")
+    try:
+        result.update(ship(n, cert))
+    except (LookupError, RuntimeError, ValueError, OSError) as e:
+        st["publish"] = {"cycle": n, "attempts": 1,
+                         "next_at": time.time() + _backoff(args.every, 1)}
+        result["error"] = f"publish failed, retrying with backoff: {e}"
+    return save(result)
+
+
+def watch(args, cfg_T: int, extra: list[str]) -> None:
+    stop = Path(args.runs) / args.domain / "STOP"
+    while not stop.exists():
+        watch_tick(args, cfg_T, extra)
+        if args.once:
+            return
+        until = time.time() + args.every
+        while time.time() < until and not stop.exists():
+            time.sleep(min(30.0, max(0.0, until - time.time())))
+    print(f"[watch:{args.domain}] STOP present; exiting", flush=True)
 
 
 def main():
@@ -298,6 +509,37 @@ def main():
                    help='"|"-separated pass/fail criteria for every task')
     p.add_argument("--limit", type=int, default=200, help="newest closed runs to read (1-1000)")
     p.add_argument("--heldout", type=float, default=0.2)
+    p = sub.add_parser("watch", help="continuous evolution: ingest live failures on a schedule; "
+                       "when enough build up, run a cycle and publish a certified gain")
+    src = p.add_mutually_exclusive_group(required=True)
+    src.add_argument("--traces", help="production trace JSONL (re-read each tick; idempotent)")
+    src.add_argument("--blackbox-url", help="a Zanii Blackbox gateway (BLACKBOX_API_KEY)")
+    p.add_argument("--label", help="the agent's Blackbox label (with --blackbox-url)")
+    p.add_argument("--rubric", default="Does what the request asks, completely and correctly",
+                   help='"|"-separated pass/fail criteria for every task')
+    p.add_argument("--limit", type=int, default=200)
+    p.add_argument("--heldout", type=float, default=0.2)
+    p.add_argument("--min-failures", type=int, default=20,
+                   help="new failed runs that trigger a cycle")
+    p.add_argument("--every", type=float, default=3600, help="seconds between ticks (>= 60)")
+    p.add_argument("--once", action="store_true", help="one tick, then exit (for cron)")
+    p.add_argument("--on-publish", default=None, help="command run after a publish with "
+                   "ZANII_EVOLVE_MANIFEST set, e.g. to stage the harness (no shell)")
+    p.add_argument("--on-event", default=None, help="command run on every rollout, failure "
+                   "and publish event with ZANII_EVOLVE_EVENT (JSON) set: alerts (no shell)")
+    p.add_argument("--hook-timeout", type=float, default=600)
+    p.add_argument("--rollout", type=lambda v: [float(x) for x in v.split(",") if x.strip()],
+                   default=None, help="live canary shares per stage, e.g. 0.05,0.25,0.5; "
+                   "agents route via /api/domains/<d>/rollout/assign and report outcomes")
+    p.add_argument("--rollout-alpha", type=float, default=0.05,
+                   help="false-rollback budget of the always-valid harm test")
+    p.add_argument("--rollout-min-requests", type=int, default=200,
+                   help="canary outcomes a stage needs before it can pass")
+    p.add_argument("--stall-hours", type=float, default=24,
+                   help="alert once when a stage has gathered too few outcomes for this long")
+    p.add_argument("--max-retries", type=int, default=6, help="publish attempts before giving up")
+    p.add_argument("--max-cycle-failures", type=int, default=4,
+                   help="failed attempts before a cycle is abandoned and its rounds undone")
     p = sub.add_parser("serve", help="service API + dashboard")
     p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--port", type=int, default=8765)
@@ -345,6 +587,27 @@ def main():
         ingest_blackbox(args.domain, args.url, args.label, args.rubric, args.limit, args.heldout)
         return
 
+    extra = [a for k in OVERRIDES if getattr(args, k) is not None
+             for a in ("--" + k.replace("_", "-"), str(getattr(args, k)))]
+    if args.cmd == "watch":
+        if args.blackbox_url and not args.label:
+            ap.error("--blackbox-url needs --label")
+        if args.min_failures < 1 or args.every < 60:
+            ap.error("--min-failures must be >= 1 and --every >= 60 seconds")
+        if args.max_retries < 1 or args.max_cycle_failures < 1:
+            ap.error("--max-retries and --max-cycle-failures must be >= 1")
+        if args.rollout is not None:
+            from zanii_evolve.rollout import validate
+            try:                               # a bad plan fails now, not after a cycle
+                validate(args.rollout, args.rollout_alpha, args.rollout_min_requests)
+            except ValueError as e:
+                ap.error(str(e))
+        domain = load_domain(args.domain)
+        cfg = ZaniiEvolveConfig.load(domain.root / "zanii_evolve.json",
+                                     **{k: getattr(args, k) for k in OVERRIDES})
+        watch(args, cfg.T, extra)
+        return
+
     domain = load_domain(args.domain)
     cfg = ZaniiEvolveConfig.load(domain.root / "zanii_evolve.json",
                            **{k: getattr(args, k) for k in OVERRIDES})
@@ -368,9 +631,7 @@ def main():
     elif args.cmd == "reevaluate":
         run.reevaluate(args.t, [v for v in args.variants.split(",") if v] or None)
     elif args.cmd == "run":
-        drive(Path(__file__), args.domain, Path(args.runs), cfg.T, args.start,
-              extra_args=[a for k in OVERRIDES if getattr(args, k) is not None
-                          for a in ("--" + k.replace("_", "-"), str(getattr(args, k)))])
+        drive(Path(__file__), args.domain, Path(args.runs), cfg.T, args.start, extra_args=extra)
     elif args.cmd == "heldout":
         ids = {"heldout": domain.heldout_ids, "evolve": domain.evolve_ids,
                "redteam": getattr(domain, "redteam_ids", list)}[args.set]()

@@ -30,6 +30,7 @@ Maintained by [zaniiai agency](https://github.com/zaniiai).
 - [Install](#install)
 - [Quickstart](#quickstart)
 - [Bring your own tasks](#bring-your-own-tasks)
+- [Continuous evolution](#continuous-evolution)
 - [Certificates, signing and the registry](#certificates-signing-and-the-registry)
 - [Memory](#memory)
 - [Dashboard and HTTP API](#dashboard-and-http-api)
@@ -231,6 +232,77 @@ exporting a `zanii_evolve.domain.Domain` that runs and scores a harness, renders
 traces for the analyst, and supplies the domain's leakage denylist and guards.
 The core never reads a benchmark format itself.
 
+## Continuous evolution
+
+`watch` runs the whole loop next to agents that are already in production: it
+learns from their failures, ships what it can prove, and rolls it out to live
+traffic only as far as live results allow.
+
+```bash
+BLACKBOX_API_KEY=... python zanii_evolve.py --domain acme watch \
+    --blackbox-url https://blackbox.example.com --label refunds \
+    --min-failures 20 --every 3600 \
+    --rollout 0.05,0.25,0.5 --on-event ./page.sh
+```
+
+Each tick it ingests new runs (a trace file or a Blackbox gateway, as above).
+Once enough new failures have built up it runs a cycle: a fresh baseline of the
+current incumbent on today's tasks, then `T` rounds. New tasks change what is
+measured, so the previous cycle's evidence moves to `runs/<domain>/cycles/c<N>/`;
+the receipt chain, the judge record and memory carry over. A gain that clears the
+noise band is evaluated on the held-out split, certified, signed (with
+`ZANII_EVOLVE_IDENTITY`) and published. A gain inside the noise band ships nothing.
+
+**Live rollout.** With `--rollout`, a published harness becomes a canary that
+serves each listed share of sessions in turn, next to the stable harness it
+would replace. Your agent runtime asks which harness a session gets, and reports
+how the session went:
+
+```bash
+curl "$HOST/api/domains/acme/rollout/assign?key=$SESSION_ID"
+#   {"arm": "canary", "commit": "7421c53", "stage": 0}   sticky per session
+curl -X POST "$HOST/api/domains/acme/rollout/outcome" \
+     -H "Authorization: Bearer $ZANII_EVOLVE_API_TOKEN" \
+     -d '{"key": "'$SESSION_ID'", "commit": "7421c53", "ok": true}'
+```
+
+The harness for a commit is `registry/<domain>/<commit>/harness.tar.gz`. Every
+tick tests the canary for harm: because sessions are assigned at random with a
+known share, a canary that is no worse than stable receives at most that share
+of the failures, and a mixture likelihood ratio on where failures land stays
+valid however often it is checked (Ville's inequality; the false-rollback budget
+is `--rollout-alpha`, split across stages). Harm rolls the canary back at once and
+moves `evolve/<domain>` back to the stable harness, so the next cycle starts from
+what is serving. A stage passes after `--rollout-min-requests` canary outcomes
+without harm; passing the last one promotes the canary to stable.
+`GET /api/domains/<d>/rollout` shows the state and the current stage's counts.
+`--on-publish` still runs on every publish, with `ZANII_EVOLVE_MANIFEST` set, for
+anything that has to stage the harness first.
+
+**Failures.** Nothing waits on a person:
+
+| What fails | What `watch` does |
+|---|---|
+| The trace file or gateway | logs `ingest_failed`, tries again next tick |
+| A cycle (baseline error, a round that did not settle) | resumes it with backoff (`--every`, doubling, at most a day); new tasks wait so the cycle finishes on the task set it started with |
+| The same cycle `--max-cycle-failures` times | abandons it: archives it as `cycles/c<N>-abandoned`, resets `evolve/<domain>` to the cycle's baseline, raises `cycle_abandoned` |
+| Publishing a certified gain | retries with backoff before any new cycle; after `--max-retries`, raises `publish_gave_up` |
+| A rollout stage gathering too few outcomes for `--stall-hours` | raises `rollout_stalled` once and keeps waiting |
+
+`--on-event` runs on every event except a quiet wait, with the event as JSON in
+`ZANII_EVOLVE_EVENT`: point it at a pager, a chat webhook or a ticket. Hooks run
+without a shell and with `--hook-timeout`. Every decision is appended to
+`runs/<domain>/watch.json`. `--once` runs a single tick for cron, and
+`touch runs/<domain>/STOP` ends the loop.
+
+**Learning inside a deployment.** Harness changes arrive per cycle, never in the
+middle of a conversation: a change counts only after it beats the incumbent
+across repeated trials, and one conversation cannot show that. Between cycles a
+deployed harness can still learn from each conversation through its memory
+(`mechanisms.TaskMemory`: recall before a task, record a lesson after). Run it with
+a persistent `ZANII_EVOLVE_STATE_DIR` if the search has switched the memory loop
+on, and the live rollout guards that behaviour like any other.
+
 ## Certificates, signing and the registry
 
 ```bash
@@ -352,7 +424,7 @@ identity files are ignored by git.
 ```
 smoke | baseline | calibrate | round | run | status | readjudicate | reevaluate | heldout
 pareto | report | verify-report | verify-receipts | publish | registry | identity
-init-domain | import-tasks | ingest-traces | ingest-blackbox | redteam | judge-agreement | lessons | serve
+init-domain | import-tasks | ingest-traces | ingest-blackbox | redteam | judge-agreement | lessons | watch | serve
 ```
 
 `python zanii_evolve.py --help` lists every option.

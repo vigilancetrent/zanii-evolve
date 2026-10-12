@@ -94,11 +94,11 @@ class EvalResult:
                    extra=d.get("extra") or {})
 
     def save(self, path: Path | str) -> None:
-        Path(path).write_text(json.dumps(self.to_json(), indent=1))
+        Path(path).write_text(json.dumps(self.to_json(), indent=1), encoding="utf-8")
 
     @classmethod
     def load(cls, path: Path | str) -> "EvalResult":
-        return cls.from_json(json.loads(Path(path).read_text()))
+        return cls.from_json(json.loads(Path(path).read_text(encoding="utf-8")))
 
 
 def aggregate(job: str, k: int, per_task: dict, extra: dict | None = None) -> EvalResult:

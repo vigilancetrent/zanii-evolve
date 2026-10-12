@@ -195,7 +195,7 @@ class BriefDomain(Domain):
     def __init__(self, here: Path):
         self.here = Path(here).resolve()
         self.name = self.here.name
-        self.cfg = json.loads((self.here / "zanii_evolve.json").read_text())
+        self.cfg = json.loads((self.here / "zanii_evolve.json").read_text(encoding="utf-8"))
         self.tasks = {t["id"]: t for t in load_tasks(self.here / "tasks.jsonl")}
         sys.path.insert(0, str(self.here))
         import importlib
@@ -244,7 +244,8 @@ class BriefDomain(Domain):
         out = runs_dir / "jobs" / label
         out.mkdir(parents=True, exist_ok=True)
         tf = out / "_tasks.json"
-        tf.write_text(json.dumps([public_view(self.tasks[t]) for t in ids], ensure_ascii=False))
+        tf.write_text(json.dumps([public_view(self.tasks[t]) for t in ids], ensure_ascii=False),
+                      encoding="utf-8")
         log = runs_dir / "logs" / f"{label.replace('/', '_')}.harness.log"
         log.parent.mkdir(parents=True, exist_ok=True)
         state = runs_dir / "state" / label
@@ -302,7 +303,8 @@ class BriefDomain(Domain):
         for attempt in range(3):
             try:
                 sp.write_text(json.dumps(grade(self.tasks[tid], str(res.get("output") or ""),
-                                               model), ensure_ascii=False, indent=1))
+                                               model), ensure_ascii=False, indent=1),
+                              encoding="utf-8")
                 return
             except Exception as e:  # noqa: BLE001 - judge outage: retry, then leave missing
                 print(f"[{self.name}] judge {tid}: {type(e).__name__}: {e} "

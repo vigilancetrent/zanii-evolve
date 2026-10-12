@@ -109,7 +109,8 @@ class Domain:
 
     def constitution(self, root: Path) -> tuple[str, str]:
         d = root / "domains" / self.name
-        return (d / "SKILL.md").read_text(), (d / "PATTERNS.md").read_text()
+        return ((d / "SKILL.md").read_text(encoding="utf-8"),
+                (d / "PATTERNS.md").read_text(encoding="utf-8"))
 
 
 def load_domain(name: str) -> Domain:

@@ -61,7 +61,7 @@ class History:
         if not self.path.exists():
             return []
         out = []
-        for line in self.path.read_text().splitlines():
+        for line in self.path.read_text(encoding="utf-8").splitlines():
             line = line.strip()
             if line:
                 out.append(json.loads(line))
@@ -71,7 +71,7 @@ class History:
         rec = dict(rec)
         rec.setdefault("ts", time.strftime("%Y-%m-%d %H:%M:%S"))
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        with open(self.path, "a") as f:
+        with open(self.path, "a", encoding="utf-8") as f:
             f.write(json.dumps(rec, ensure_ascii=False) + "\n")
 
     def append_candidate(self, t: int, variant: str, edits: list[dict],
@@ -103,7 +103,8 @@ class History:
         them); records satisfying `keep` survive."""
         recs = [r for r in self.records()
                 if not (r.get("t") == t and r.get("edit_id")) or keep(r)]
-        self.path.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in recs))
+        self.path.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in recs),
+                             encoding="utf-8")
 
     def has(self, t: int, variant: str) -> bool:
         return any(r.get("t") == t and r.get("variant") == variant

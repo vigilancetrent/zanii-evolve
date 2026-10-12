@@ -109,11 +109,11 @@ def calibrate(evals: list[EvalResult], z: float = 2.0, reps: int = 2000) -> dict
 
 
 def write(path: Path | str, cal: dict) -> None:
-    Path(path).write_text(json.dumps(cal, indent=1))
+    Path(path).write_text(json.dumps(cal, indent=1), encoding="utf-8")
 
 
 def read_delta(path: Path | str) -> float | None:
     p = Path(path)
     if not p.exists():
         return None
-    return float(json.loads(p.read_text())["delta"])
+    return float(json.loads(p.read_text(encoding="utf-8"))["delta"])

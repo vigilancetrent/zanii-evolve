@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.2.1 (2026-10-13)
+
+- **`watch`: continuous evolution.** Ingests a trace file or a Blackbox gateway on
+  a schedule. Once `--min-failures` new failures have built up, it runs a cycle
+  (a fresh baseline on the current tasks, then `T` rounds) and archives the
+  previous one under `runs/<domain>/cycles/`. It publishes only a gain above the
+  noise band, after a held-out evaluation, and calls `--on-publish` with
+  `ZANII_EVOLVE_MANIFEST` for your deploy or canary. Failed cycles resume on the
+  next tick; every decision is logged to `watch.json`. `--once` is for cron.
+- **Live rollout with automatic rollback** (`watch --rollout 0.05,0.25,0.5`). A
+  published harness serves growing shares of live sessions next to the stable
+  one. The routing is sticky (`GET /api/domains/<d>/rollout/assign?key=`), and
+  outcomes are reported with `POST .../rollout/outcome` (token required). Each
+  tick runs an anytime-valid harm test: a mixture likelihood ratio on which arm
+  the failures land on, under randomized assignment, bounded by Ville's
+  inequality. On harm it rolls back and resets `evolve/<domain>` to stable; a
+  canary that passes every stage is promoted. Outcomes are keyed by rollout id,
+  so a re-run of the same canary starts clean.
+- **`watch` recovers on its own.** A failed publish is retried with backoff before
+  any new cycle. A failing cycle backs off, and after `--max-cycle-failures` it
+  is abandoned, archived and its uncertified rounds undone. `--on-event` receives
+  every rollout, failure and publish event as JSON, for alerting.
+- **Fix: rounds crashed on Windows.** Files were read and written with the platform
+  codec (cp1252), so any harness or trace holding non-Latin-1 text broke the
+  proposer. Every text read and write in the package is now UTF-8.
+
 ## 0.2.0 (2026-10-13)
 
 - **Confirmation run (the winner's curse).** The round's winner is measured again

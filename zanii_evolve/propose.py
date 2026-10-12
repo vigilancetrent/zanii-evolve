@@ -161,19 +161,19 @@ class Workspace:
 
     def read(self, rel: str) -> str:
         p = self._safe(rel)
-        return p.read_text() if p.exists() else f"ERROR: no such file {rel}"
+        return p.read_text(encoding="utf-8") if p.exists() else f"ERROR: no such file {rel}"
 
     def edit(self, rel: str, old: str, new: str) -> str:
         p = self._safe(rel)
         if not p.exists():
             return f"ERROR: no such file {rel}"
-        src = p.read_text()
+        src = p.read_text(encoding="utf-8")
         n = src.count(old)
         if n == 0:
             return "ERROR: old string not found (must match exactly, including whitespace)"
         if n > 1:
             return f"ERROR: old string occurs {n} times; provide a longer unique context"
-        p.write_text(src.replace(old, new, 1))
+        p.write_text(src.replace(old, new, 1), encoding="utf-8")
         return f"OK: edited {rel}"
 
     def write(self, rel: str, content: str) -> str:
@@ -183,14 +183,15 @@ class Workspace:
         if p.exists():
             return f"ERROR: {rel} exists; use edit_file"
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(content)
+        p.write_text(content, encoding="utf-8")
         return f"OK: created {rel}"
 
     def dump(self) -> str:
         parts = []
         for p in sorted(self.dir.rglob("*")):
             if p.is_file() and p.suffix in self.exts and "__pycache__" not in p.parts:
-                parts.append(f"===== FILE: {p.relative_to(self.dir)} =====\n{p.read_text()}")
+                parts.append(f"===== FILE: {p.relative_to(self.dir)} =====\n"
+                             + p.read_text(encoding="utf-8"))
         return "\n\n".join(parts)
 
 

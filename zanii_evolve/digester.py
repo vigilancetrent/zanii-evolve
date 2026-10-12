@@ -130,7 +130,7 @@ def _read_file(root: Path, rel: str, offset, limit) -> str:
     p = _safe(root, rel)
     if not p.exists():
         return f"ERROR: no such file {rel}"
-    lines = p.read_text().splitlines()
+    lines = p.read_text(encoding="utf-8").splitlines()
     lo = max(0, (offset or 1) - 1)
     hi = lo + (limit or 400)
     body = "\n".join(f"{i+1}: {l}" for i, l in enumerate(lines[lo:hi], start=lo))
@@ -146,7 +146,7 @@ def _grep(root: Path, pattern: str, rel: str, max_hits: int) -> str:
     except re.error as e:
         return f"ERROR: bad regex: {e}"
     out = []
-    for i, line in enumerate(p.read_text().splitlines(), 1):
+    for i, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1):
         if rx.search(line):
             out.append(f"{i}: {line[:400]}")
             if len(out) >= max_hits:

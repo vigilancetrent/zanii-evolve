@@ -111,7 +111,7 @@ class ZaniiEvolveConfig:
 
     @classmethod
     def load(cls, path: Path | str, **overrides) -> "ZaniiEvolveConfig":
-        raw = json.loads(Path(path).read_text())
+        raw = json.loads(Path(path).read_text(encoding="utf-8"))
         known = {f.name for f in fields(cls)}
         kw = {k: v for k, v in raw.items() if k in known}
         kw["notes"] = {k: v for k, v in raw.items() if k not in known}
