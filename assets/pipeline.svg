@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="430" viewBox="0 0 1200 430" role="img" aria-labelledby="t d">
+  <title id="t">How a Zanii Evolve round works</title>
+  <desc id="d">Tasks feed an evolve loop of analyze, propose, screen, evaluate and select; accepted harnesses are certified, signed and published.</desc>
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M0 0L10 5L0 10z" fill="#475569"/>
+    </marker>
+    <style>
+      text { font-family: Inter, "Segoe UI", Helvetica, Arial, sans-serif; }
+      .h { font-size: 15px; font-weight: 600; fill: #0F172A; }
+      .s { font-size: 12.5px; fill: #475569; }
+      .lbl { font-size: 12px; font-weight: 600; fill: #64748B; letter-spacing: 1px; }
+      .box { fill: #FFFFFF; stroke: #CBD5E1; stroke-width: 1.5; }
+      .key { fill: #F0FDFA; stroke: #14B8A6; stroke-width: 1.5; }
+      .ln { stroke: #475569; stroke-width: 1.5; fill: none; marker-end: url(#a); }
+    </style>
+  </defs>
+  <rect width="1200" height="430" rx="18" fill="#F8FAFC"/>
+
+  <!-- inputs -->
+  <text x="40" y="44" class="lbl">TASKS IN</text>
+  <rect x="40" y="60" width="200" height="56" rx="10" class="box"/>
+  <text x="56" y="84" class="h">Benchmarks</text><text x="56" y="103" class="s">Terminal-Bench, Harvey LAB, …</text>
+  <rect x="40" y="128" width="200" height="56" rx="10" class="box"/>
+  <text x="56" y="152" class="h">Briefs (CSV / JSONL)</text><text x="56" y="171" class="s">checks + rubric, no code</text>
+  <rect x="40" y="196" width="200" height="56" rx="10" class="box"/>
+  <text x="56" y="220" class="h">Production traces</text><text x="56" y="239" class="s">failures first, PII redacted</text>
+  <rect x="40" y="264" width="200" height="56" rx="10" class="box"/>
+  <text x="56" y="288" class="h">Red-team split</text><text x="56" y="307" class="s">injection canaries, held out</text>
+
+  <!-- loop -->
+  <text x="300" y="44" class="lbl">EVOLVE LOOP (ONE ROUND)</text>
+  <rect x="290" y="60" width="560" height="260" rx="14" fill="#FFFFFF" stroke="#94A3B8" stroke-dasharray="5 4"/>
+  <rect x="312" y="84" width="150" height="62" rx="10" class="box"/>
+  <text x="328" y="110" class="h">Analyze</text><text x="328" y="129" class="s">failure traces</text>
+  <rect x="496" y="84" width="150" height="62" rx="10" class="box"/>
+  <text x="512" y="110" class="h">Propose</text><text x="512" y="129" class="s">budgeted edits</text>
+  <rect x="680" y="84" width="150" height="62" rx="10" class="box"/>
+  <text x="696" y="110" class="h">Screen</text><text x="696" y="129" class="s">critic, leakage</text>
+  <rect x="496" y="226" width="150" height="62" rx="10" class="box"/>
+  <text x="512" y="252" class="h">Evaluate</text><text x="512" y="271" class="s">k trials, worktrees</text>
+  <rect x="680" y="226" width="150" height="62" rx="10" class="key"/>
+  <text x="696" y="252" class="h">Select</text><text x="696" y="271" class="s">noise floor, cost rule</text>
+  <rect x="312" y="226" width="150" height="62" rx="10" class="box"/>
+  <text x="328" y="252" class="h">Edit history</text><text x="328" y="271" class="s">hypotheses, verdicts</text>
+  <path d="M462 115H492" class="ln"/><path d="M646 115H676" class="ln"/>
+  <path d="M755 146V222" class="ln"/><path d="M680 257H650" class="ln"/>
+  <path d="M496 257H466" class="ln"/><path d="M387 226V150" class="ln"/>
+
+  <path d="M240 190H286" class="ln"/>
+
+  <!-- outputs -->
+  <text x="910" y="44" class="lbl">EVIDENCE OUT</text>
+  <rect x="910" y="60" width="250" height="56" rx="10" class="key"/>
+  <text x="926" y="84" class="h">Incumbent harness</text><text x="926" y="103" class="s">a git commit on evolve/&lt;domain&gt;</text>
+  <rect x="910" y="128" width="250" height="56" rx="10" class="box"/>
+  <text x="926" y="152" class="h">Certificate</text><text x="926" y="171" class="s">gain vs H₀, noise band, every edit</text>
+  <rect x="910" y="196" width="250" height="56" rx="10" class="box"/>
+  <text x="926" y="220" class="h">Signed receipt</text><text x="926" y="239" class="s">did:key, verifiable offline</text>
+  <rect x="910" y="264" width="250" height="56" rx="10" class="box"/>
+  <text x="926" y="288" class="h">Registry</text><text x="926" y="307" class="s">harness + certificate + manifest</text>
+  <path d="M850 190H906" class="ln"/>
+
+  <!-- footer -->
+  <text x="40" y="372" class="s">Rejected candidates never reach the incumbent. A gain inside the noise band, or one that costs more tokens than it earns, does not count.</text>
+  <text x="40" y="394" class="s">Held-out, out-of-distribution and red-team splits are measured separately and never enter selection.</text>
+</svg>

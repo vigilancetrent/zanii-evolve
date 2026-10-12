@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="320" viewBox="0 0 1280 320" role="img" aria-labelledby="t d">
+  <title id="t">Zanii Evolve</title>
+  <desc id="d">Regularized self-improvement for LLM agent harnesses, with verifiable change history.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0B1220"/>
+      <stop offset="1" stop-color="#111C2E"/>
+    </linearGradient>
+    <linearGradient id="trace" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#2DD4BF" stop-opacity="0.15"/>
+      <stop offset="1" stop-color="#2DD4BF" stop-opacity="0.9"/>
+    </linearGradient>
+  </defs>
+  <rect width="1280" height="320" rx="24" fill="url(#bg)"/>
+  <!-- faint grid -->
+  <g stroke="#1E2A3F" stroke-width="1">
+    <path d="M0 80H1280M0 160H1280M0 240H1280"/>
+    <path d="M760 0V320M880 0V320M1000 0V320M1120 0V320"/>
+  </g>
+  <!-- score trajectory: noisy proposals, monotone accepted path -->
+  <g transform="translate(760 40)">
+    <polyline points="0,210 60,196 120,201 180,160 240,166 300,118 360,124 420,82 480,76"
+              fill="none" stroke="url(#trace)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+    <g fill="#64748B">
+      <circle cx="40" cy="226" r="4"/><circle cx="100" cy="214" r="4"/><circle cx="150" cy="232" r="4"/>
+      <circle cx="210" cy="190" r="4"/><circle cx="270" cy="198" r="4"/><circle cx="330" cy="150" r="4"/>
+      <circle cx="390" cy="160" r="4"/><circle cx="450" cy="118" r="4"/>
+    </g>
+    <g fill="#2DD4BF">
+      <circle cx="180" cy="160" r="7"/><circle cx="300" cy="118" r="7"/><circle cx="420" cy="82" r="7"/>
+    </g>
+    <rect x="0" y="62" width="480" height="40" fill="#2DD4BF" fill-opacity="0.07"/>
+    <text x="482" y="58" text-anchor="end" font-family="Inter, Segoe UI, Helvetica, Arial, sans-serif"
+          font-size="13" fill="#94A3B8">noise band</text>
+  </g>
+  <!-- wordmark -->
+  <g font-family="Inter, Segoe UI, Helvetica, Arial, sans-serif">
+    <text x="72" y="148" font-size="68" font-weight="700" fill="#F8FAFC" letter-spacing="-1.5">Zanii Evolve</text>
+    <text x="74" y="196" font-size="22" fill="#CBD5E1">Self-improving agent harnesses that hold up out of distribution</text>
+    <text x="74" y="248" font-size="16" fill="#2DD4BF" letter-spacing="0.5">REGULARIZED SEARCH · COST-AWARE SELECTION · VERIFIABLE HISTORY</text>
+  </g>
+</svg>

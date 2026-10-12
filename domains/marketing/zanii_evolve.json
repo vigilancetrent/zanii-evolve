@@ -1,0 +1,34 @@
+{
+  "_doc": "Marketing copy domain: 48 generated tasks (make_tasks.py, seed 7) over 8 fictional clients x 6 deliverable types; 34 evolve / 12 held-out / 2 smoke. S = check + rubric criteria passed / total. delta is null until calibrate: baseline --job base, baseline --job base2, calibrate --jobs base,base2.",
+  "T": 12,
+  "k": 2,
+  "m": 2,
+  "b_min": 1,
+  "b_max": 3,
+  "w": 3,
+  "m_draft": 1,
+  "delta": null,
+  "delta_z": 2.0,
+  "beta0": 0.1,
+  "beta1": 10.0,
+  "w_s": 100.0,
+  "w_c": 5.0,
+  "w_n": 0.5,
+  "n_prune": 4,
+  "repair_rounds": 3,
+  "invalid_missing_frac": 0.1,
+  "n_fail_traces": 30,
+  "n_success_traces": 6,
+  "eval_parallel": 1,
+  "policy_model": "claude-opus-5-5",
+  "judge_model": "claude-sonnet-5-5",
+  "max_concurrent": 8,
+  "judge_concurrency": 8,
+  "harness_timeout_s": 3600,
+  "critic_patterns": [
+    [
+      "\\b(?:Fernleaf|Quarry|Lumen|Brightline|Copperpot|Harbor|Trailhead|Nimbus)\\b",
+      "client name in diff"
+    ]
+  ]
+}
