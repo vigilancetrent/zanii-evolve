@@ -270,7 +270,8 @@ def lessons_cmd(name: str, action: str, files: list[str], out: str | None,
           f"(delete the file to opt out). Re-run `baseline` so H_0 is measured with it.")
 
 
-def ingest_traces(name: str, path: str, rubric: str, limit: int, heldout: float) -> int:
+def ingest_traces(name: str, path: str, rubric: str, limit: int, heldout: float,
+                  runs_dir: Path | None = None) -> int:
     from zanii_evolve import tasksets as TS
     d = ROOT / "domains" / name
     if not (d / "tasks.jsonl").is_file():
@@ -285,6 +286,8 @@ def ingest_traces(name: str, path: str, rubric: str, limit: int, heldout: float)
         n = TS.write_tasks(d, TS.assign_splits(rows, heldout)) if rows else len(known)
     except (ValueError, OSError) as e:
         sys.exit(f"ingest failed, tasks.jsonl unchanged: {e}")
+    from zanii_evolve.custody import on_store
+    on_store(d, Path(runs_dir or ROOT / "runs") / name, [r["id"] for r in rows])
     bad = sum(1 for r in rows if TS._failed(r["notes"]["feedback"]))
     print(f"{name}: minted {len(rows)} tasks from {len(recs)} traces "
           f"({bad} with negative feedback), {n} in tasks.jsonl")
@@ -292,7 +295,7 @@ def ingest_traces(name: str, path: str, rubric: str, limit: int, heldout: float)
 
 
 def ingest_blackbox(name: str, url: str, label: str, rubric: str, limit: int,
-                    heldout: float) -> int:
+                    heldout: float, runs_dir: Path | None = None) -> int:
     """Brief tasks from a Zanii Blackbox gateway's record of one agent's runs."""
     from zanii_evolve import blackbox as BB
     from zanii_evolve import tasksets as TS
@@ -315,6 +318,8 @@ def ingest_blackbox(name: str, url: str, label: str, rubric: str, limit: int,
         n = TS.write_tasks(d, TS.assign_splits(rows, heldout)) if rows else len(known)
     except (ValueError, OSError, RuntimeError) as e:
         sys.exit(f"ingest failed, tasks.jsonl unchanged: {e}")
+    from zanii_evolve.custody import on_store
+    on_store(d, Path(runs_dir or ROOT / "runs") / name, [r["id"] for r in rows])
     bad = sum(1 for r in rows if r["notes"]["feedback"] == "bad")
     print(f"{name}: minted {len(rows)} tasks from {len(runs)} runs of {label!r} "
           f"({bad} that went wrong), {n} in tasks.jsonl"
@@ -353,6 +358,28 @@ def _constitution(domain: str) -> dict | None:
         return load_constitution(domain)
     except ImportError:
         return None
+
+
+class _Awaiting(Exception):
+    """A gated step is waiting for the owner's signed approval."""
+
+    def __init__(self, status: str, cid: str, tool: str):
+        super().__init__(cid)
+        self.status, self.cid, self.tool = status, cid, tool
+
+
+def _gate(args, run_dir: Path, tool: str, action) -> None:
+    """Raise _Awaiting unless the owner approved exactly this action (zanii_evolve.gate).
+    `action` is a callable, built only when the step is gated."""
+    if tool not in (getattr(args, "require_approval", None) or []):
+        return
+    action = action()
+    from zanii_evolve import gate
+    from zanii_evolve.report import load_identity
+    owner = load_identity()["delegation"][0]["issuer"]
+    status, cid = gate.check(run_dir, tool, action, owner, args.approval_ttl_hours)
+    if status != "approved":
+        raise _Awaiting(status, cid, tool)
 
 
 def _backoff(every: float, failures: int) -> float:
@@ -405,6 +432,9 @@ def watch_tick(args, cfg_T: int, extra: list[str]) -> dict:
     def ship(n: int, cert: dict) -> dict:
         """Publish (raises on failure), then the publish hook and the rollout."""
         from zanii_evolve import registry as REG
+        _gate(args, run_dir, "publish", lambda: {"domain": args.domain,
+                                                 "commit": str(cert["incumbent"]["commit"]),
+                                                 "gain": f"{cert['gain']:+.4f}"})
         root = REG.default_root(ROOT)
         manifest = REG.publish(ROOT, run_dir, os.path.normpath(
             f"domains/{args.domain}/{load_domain(args.domain).harness_path}"), root)
@@ -437,6 +467,16 @@ def watch_tick(args, cfg_T: int, extra: list[str]) -> dict:
     rs = RO.load(run_dir)
     if rs and rs["status"] == "running":
         verdict, ev = RO.decide(run_dir, rs, args.stall_hours, _constitution(args.domain))
+        if verdict == "promote":                   # rollback is never gated: it is the safety
+            try:
+                _gate(args, run_dir, "promote", lambda: {"domain": args.domain, "rollout": rs["id"],
+                                                         "canary": rs["canary"],
+                                                         "stable": rs["stable"]})
+            except _Awaiting as w:
+                verdict = "wait"
+                if w.status != "pending":
+                    save({"event": "approval_required", "action": "promote", "id": w.cid,
+                          "canary_commit": rs["canary"], "approve": f"approve {w.cid}"})
         if verdict != "wait":
             arms = {"canary_commit": rs["canary"], "stable_commit": rs["stable"]}
             rs = RO.apply(run_dir, rs, verdict, ev)
@@ -455,6 +495,12 @@ def watch_tick(args, cfg_T: int, extra: list[str]) -> dict:
         try:
             from zanii_evolve import report as R
             out = ship(n, R.build(run_dir))
+        except _Awaiting as w:
+            pub["approval"] = w.cid
+            if w.status == "pending":
+                return st                          # still waiting; nothing new to say
+            return save({"event": "approval_required", "action": "publish", "id": w.cid,
+                         "cycle": n, "approve": f"approve {w.cid}"})
         except (LookupError, RuntimeError, ValueError, OSError) as e:
             pub["attempts"] += 1
             if pub["attempts"] >= args.max_retries:
@@ -472,10 +518,10 @@ def watch_tick(args, cfg_T: int, extra: list[str]) -> dict:
         try:                   # the ingest helpers sys.exit on a bad source; a tick survives it
             if args.traces:
                 new = ingest_traces(args.domain, args.traces, args.rubric, args.limit,
-                                    args.heldout)
+                                    args.heldout, runs_root)
             else:
                 new = ingest_blackbox(args.domain, args.blackbox_url, args.label, args.rubric,
-                                      args.limit, args.heldout)
+                                      args.limit, args.heldout, runs_root)
         except SystemExit as e:
             return save({"event": "ingest_failed", "error": str(e)})
         st["pending"] += new
@@ -528,6 +574,9 @@ def watch_tick(args, cfg_T: int, extra: list[str]) -> dict:
         + ["heldout", "--label", f"c{n}"], run_dir / "logs" / f"watch_c{n}.log")
     try:
         result.update(ship(n, cert))
+    except _Awaiting as w:                         # parked: the publish branch retries it
+        st["publish"] = {"cycle": n, "attempts": 0, "next_at": 0.0, "approval": w.cid}
+        result.update(approval_required=w.cid, approve=f"approve {w.cid}")
     except (LookupError, RuntimeError, ValueError, OSError) as e:
         st["publish"] = {"cycle": n, "attempts": 1,
                          "next_at": time.time() + _backoff(args.every, 1)}
@@ -623,7 +672,8 @@ def main():
                    ).add_argument("state_dir")
     p = sub.add_parser("data", help="client data: prove a record was or was not in a "
                        "certificate's training set, or delete it with a signed attestation")
-    p.add_argument("action", choices=["prove", "verify", "forget"])
+    p.add_argument("action", choices=["prove", "verify", "forget", "custody"])
+    p.add_argument("--owner", default=None, help="custody: pin the signer's owner did:key")
     p.add_argument("--cert", help="prove/verify: the full certificate JSON")
     p.add_argument("--proof", help="verify: a proof written by `data prove`")
     p.add_argument("--task-id", help="the record's task id (tr-..., bb-...)")
@@ -669,6 +719,10 @@ def main():
     p = sub.add_parser("anchor-identity", help="anchor the identity's post-quantum key binding "
                        "on the ledger (once), or --check a saved anchor offline")
     p.add_argument("--check", default=None, help="a pq_transition.json to verify offline")
+    sub.add_parser("approvals", help="watch steps waiting for the owner's approval")
+    p = sub.add_parser("approve", help="the owner signs approval of one pending watch step")
+    p.add_argument("id")
+    p.add_argument("--owner-key", required=True, help="owner.json")
     sub.add_parser("ledger-check", help="audit the Zanii ledger (ZANII_LEDGER_URL) once and "
                    "save its state; watch then proves on every tick that it only grew")
     p = sub.add_parser("audit-rollout", help="re-check live evidence: the signed decision "
@@ -730,6 +784,11 @@ def main():
     p.add_argument("--stall-hours", type=float, default=24,
                    help="alert once when a stage has gathered too few outcomes for this long")
     p.add_argument("--max-retries", type=int, default=6, help="publish attempts before giving up")
+    p.add_argument("--require-approval", type=lambda v: [x.strip() for x in v.split(",") if x.strip()],
+                   default=None, help="steps that wait for the owner's signed approval: "
+                   "publish, promote (rollback never waits)")
+    p.add_argument("--approval-ttl-hours", type=float, default=72,
+                   help="an unanswered approval expires and is reopened after this")
     p.add_argument("--max-cycle-failures", type=int, default=4,
                    help="failed attempts before a cycle is abandoned and its rounds undone")
     p = sub.add_parser("serve", help="service API + dashboard")
@@ -804,6 +863,21 @@ def main():
     if args.cmd == "init-domain":
         init_domain(args.domain)
         return
+    if args.cmd == "data" and args.action == "custody":
+        from zanii_evolve.custody import history
+        from zanii_evolve.tasksets import trace_task_id
+        if not (args.task_id or args.text):
+            sys.exit("data custody needs --task-id or --text")
+        cfg = json.loads((ROOT / "domains" / args.domain / "zanii_evolve.json").read_text(
+            encoding="utf-8")) if (ROOT / "domains" / args.domain / "zanii_evolve.json").exists() else {}
+        try:
+            out = history(Path(args.runs) / args.domain, args.task_id or trace_task_id(args.text),
+                          args.owner, sorted((cfg.get("subprocessors") or {})))
+        except (LookupError, RuntimeError, OSError) as e:
+            sys.exit(str(e))
+        _emit(out, args.out)
+        sys.exit(0 if out["log_intact"] and out["touches_verified"] and out["recipients_declared"]
+                 else 1)
     if args.cmd == "data":                     # forget
         from zanii_evolve.report import load_identity
         from zanii_evolve.trust import forget
@@ -840,6 +914,16 @@ def main():
             print(f"wrote {args.out}")
         else:
             print(md)
+        return
+    if args.cmd in ("approvals", "approve"):
+        from zanii_evolve import gate
+        run_dir = Path(args.runs) / args.domain
+        try:
+            out = (gate.pending(run_dir) if args.cmd == "approvals"
+                   else gate.approve(run_dir, args.id, Path(args.owner_key)))
+        except (LookupError, ValueError, RuntimeError, OSError) as e:
+            sys.exit(str(e))
+        print(json.dumps(out, indent=1))
         return
     if args.cmd == "ledger-check":
         from zanii_evolve.trust import ledger_check
@@ -887,10 +971,11 @@ def main():
         redteam(args.domain, args.n, args.seed)
         return
     if args.cmd == "ingest-traces":
-        ingest_traces(args.domain, args.file, args.rubric, args.limit, args.heldout)
+        ingest_traces(args.domain, args.file, args.rubric, args.limit, args.heldout, Path(args.runs))
         return
     if args.cmd == "ingest-blackbox":
-        ingest_blackbox(args.domain, args.url, args.label, args.rubric, args.limit, args.heldout)
+        ingest_blackbox(args.domain, args.url, args.label, args.rubric, args.limit, args.heldout,
+                        Path(args.runs))
         return
 
     extra = [a for k in OVERRIDES if getattr(args, k) is not None
@@ -902,6 +987,12 @@ def main():
             ap.error("--min-failures must be >= 1 and --every >= 60 seconds")
         if args.max_retries < 1 or args.max_cycle_failures < 1:
             ap.error("--max-retries and --max-cycle-failures must be >= 1")
+        if args.require_approval:
+            bad = [x for x in args.require_approval if x not in ("publish", "promote")]
+            if bad:
+                ap.error(f"--require-approval takes publish and/or promote, not {bad}")
+            if not os.environ.get("ZANII_EVOLVE_IDENTITY"):
+                ap.error("--require-approval needs ZANII_EVOLVE_IDENTITY: its owner approves")
         if args.rollout is not None:
             from zanii_evolve.rollout import validate
             try:                               # a bad plan fails now, not after a cycle

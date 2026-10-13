@@ -264,6 +264,8 @@ class Run:
                              model=cfg.analyst_model)
             report_path.write_text(json.dumps(report, ensure_ascii=False, indent=1),
                                    encoding="utf-8")
+            from .custody import on_analyze    # these traces reached the analyst and proposer
+            on_analyze(d, self.runs, list(traces), [cfg.analyst_model, cfg.proposer_model])
         self.global_analysis.write_text(json.dumps(
             {"failure_modes": report.get("failure_modes"),
              "success_habits": report.get("success_habits")}, ensure_ascii=False, indent=1),

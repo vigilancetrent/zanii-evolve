@@ -15,7 +15,7 @@
 
 [project]
 name = "zanii-evolve"
-version = "0.3.0"
+version = "0.3.1"
 description = "Regularized self-improvement of LLM agent harnesses: gains that hold up out of distribution, with verifiable change history"
 readme = "README.md"
 license = "Apache-2.0"

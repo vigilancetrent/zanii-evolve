@@ -48,7 +48,7 @@ def env(tmp_path, monkeypatch):
                      min_failures=3, every=60, once=True, on_publish=None, on_event=None,
                      hook_timeout=30, rollout=None, rollout_alpha=0.05,
                      rollout_min_requests=20, stall_hours=24, max_retries=3,
-                     max_cycle_failures=3)
+                     max_cycle_failures=3, require_approval=None, approval_ttl_hours=72)
     calls = SimpleNamespace(drive=0, published=[], gain=0.2, publish_error=None, refs=[])
 
     def drive(entry, domain, runs_root, T, start, extra_args=None):
@@ -67,7 +67,8 @@ def env(tmp_path, monkeypatch):
     monkeypatch.setattr(cli.G, "git", lambda cwd, *a, check=False: calls.refs.append(a))
     monkeypatch.setattr(R, "build", lambda d: {"gain": calls.gain, "noise_band": 0.05,
                                                "gain_exceeds_noise": calls.gain > 0.05,
-                                               "baseline": {"commit": "stable01"}})
+                                               "baseline": {"commit": "stable01"},
+                                               "incumbent": {"commit": "canary01"}})
     monkeypatch.setattr(REG, "publish", publish)
 
     def add(n, start=0):
@@ -331,3 +332,70 @@ def test_a_restarted_rollout_ignores_the_earlier_outcomes(tmp_path):
     assert RO.decide(tmp_path, st, 24)[0] == "rollback"
     st = RO.start(tmp_path, "stable01", "canary01", [0.25], 0.05, 100)   # same canary again
     assert RO.counts(tmp_path, st)["canary"]["n"] == 0
+
+
+
+# ------------------------------------------------------------ human gate ---
+def _owner_identity(env, monkeypatch):
+    pytest.importorskip("zanii")
+    from zanii_evolve import report as Rp
+    owner, ident = Rp.new_identity()
+    (env.tmp / "identity.json").write_text(json.dumps(ident))
+    (env.tmp / "owner.json").write_text(json.dumps(owner))
+    monkeypatch.setenv("ZANII_EVOLVE_IDENTITY", str(env.tmp / "identity.json"))
+    return owner
+
+
+def test_publish_waits_for_the_owners_signed_approval(env, monkeypatch):
+    from zanii_evolve import gate
+    _owner_identity(env, monkeypatch)
+    env.args.require_approval = ["publish"]
+    env.add(3)
+    st = tick(env)
+    ev = st["log"][-1]
+    assert ev["event"] == "cycle_done" and "approval_required" in ev and env.calls.published == []
+    cid = ev["approval_required"]
+    assert tick(env)["log"][-1]["event"] == "cycle_done"        # still parked: no new event
+    import zanii.core as zc
+    other = zc.generate_keypair()
+    (env.tmp / "stranger.json").write_text(json.dumps({"did": other.did,
+                                                      "private_key": other.private_key.hex()}))
+    gate.approve(env.run_dir, cid, env.tmp / "stranger.json")  # signed, but not by the owner
+    tick(env)
+    assert env.calls.published == []
+    gate.approve(env.run_dir, cid, env.tmp / "owner.json")
+    st = tick(env)
+    assert st["log"][-1]["event"] == "publish_retried" and len(env.calls.published) == 1
+    assert gate.pending(env.run_dir) == []                      # the approval was consumed
+
+
+def test_an_approval_is_bound_to_one_action_and_expires(env, monkeypatch):
+    from zanii_evolve import gate
+    owner = _owner_identity(env, monkeypatch)
+    status, cid = gate.check(env.run_dir, "publish", {"commit": "aaa"}, owner["did"], 1)
+    assert status == "opened"
+    gate.approve(env.run_dir, cid, env.tmp / "owner.json")
+    assert gate.check(env.run_dir, "publish", {"commit": "bbb"}, owner["did"])[0] == "opened"
+    assert gate.check(env.run_dir, "publish", {"commit": "aaa"}, owner["did"])[0] == "approved"
+    status, cid = gate.check(env.run_dir, "promote", {"canary": "c"}, owner["did"], -1)
+    with pytest.raises(ValueError, match="expired"):               # silence is not consent
+        gate.approve(env.run_dir, cid, env.tmp / "owner.json")
+    assert gate.check(env.run_dir, "promote", {"canary": "c"}, owner["did"])[0] == "reopened"
+
+
+def test_promote_is_gated_but_rollback_never_waits(env, monkeypatch):
+    from zanii_evolve import gate
+    _owner_identity(env, monkeypatch)
+    env.args.require_approval = ["promote"]
+    st0 = RO.start(env.run_dir, "stable01", "canary01", [0.5], 0.05, 20)
+    _feed(env.run_dir, st0, canary_fail=0.10, stable_fail=0.10, n=200)
+    st = tick(env)
+    ev = next(e for e in st["log"] if e["event"] == "approval_required")
+    assert ev["action"] == "promote" and RO.load(env.run_dir)["status"] == "running"
+    gate.approve(env.run_dir, ev["id"], env.tmp / "owner.json")
+    tick(env)
+    assert RO.load(env.run_dir)["status"] == "promoted"
+    st1 = RO.start(env.run_dir, "stable01", "canary02", [0.5], 0.05, 20)
+    _feed(env.run_dir, st1, canary_fail=0.6, stable_fail=0.1, n=400)
+    tick(env)
+    assert RO.load(env.run_dir)["status"] == "rolled_back"      # no approval asked for

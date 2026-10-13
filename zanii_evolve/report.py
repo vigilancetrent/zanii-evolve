@@ -132,7 +132,8 @@ def new_identity(exp: str = "2031-01-01T00:00:00Z", passphrase: str | None = Non
     sealed; with pq the identity also gets an ML-DSA-65 key bound to its did:key."""
     zc = _zanii()
     owner, agent = zc.generate_keypair(), zc.generate_keypair()
-    cert = zc.create_cert(issuer=owner.did, subject=agent.did, scopes=[SCOPE], exp=exp,
+    from .custody import SCOPES as CUSTODY
+    cert = zc.create_cert(issuer=owner.did, subject=agent.did, scopes=[SCOPE, *CUSTODY], exp=exp,
                           issuer_private_key=owner.private_key)
     ident = {"agent": {"did": agent.did, "privateKey": agent.private_key.hex()},
              "delegation": [cert]}

@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.3.1 (2026-10-13)
+
+- **Custody of client records** (`zanii.data_custody`, `zanii.subprocessor`). Every
+  touch of a record minted from traces or Blackbox is a signed, hash-chained receipt:
+  `store` on ingest, `share` to each hosted model that evaluates, judges or analyses
+  it (with a subprocessor transfer under the agreement the domain declares), `read`
+  for a local model, `delete` on `forget`. Records appear only as HMAC refs. New
+  identities are delegated exactly these operations, so an export cannot produce a
+  valid receipt. `data custody` shows a client their record's history and flags any
+  recipient the domain did not declare.
+- **Approvals** (the `zanii.runtime` human gate, persisted). `watch
+  --require-approval publish,promote` parks those steps until the owner signs a
+  confirmation bound to that exact action (`approve <id>`); unanswered requests
+  expire and are asked again; rollback never waits. `approvals` lists them.
+- Fixes: `rollout.save` creates the run directory; the trace ingest helpers take the
+  runs directory explicitly.
+
 ## 0.3.0 (2026-10-13)
 
 Trust and evidence on the Zanii packages; everything is opt-in and verifies offline.

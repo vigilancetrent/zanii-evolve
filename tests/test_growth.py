@@ -467,7 +467,8 @@ def test_cli_identity_never_overwrites_keys(tmp_path, monkeypatch):
     ident = R.load_identity(str(tmp_path / "keys" / "identity.json"))
     owner = json.loads((tmp_path / "keys" / "owner.json").read_text())
     assert ident["delegation"][0]["issuer"] == owner["did"]
-    assert ident["delegation"][0]["scopes"] == [R.SCOPE]
+    from zanii_evolve.custody import SCOPES as CUSTODY
+    assert ident["delegation"][0]["scopes"] == [R.SCOPE, *CUSTODY]     # purpose-bound: no export
     with pytest.raises(SystemExit):
         cli.make_identity(tmp_path / "keys", "2031-01-01T00:00:00Z")
 

@@ -133,7 +133,8 @@ def rotate_identity(owner_file: Path, identity_file: Path, out: Path, reason: st
     if old["delegation"][0]["issuer"] != owner_did:
         raise ValueError("that owner did not delegate the current identity")
     new = zc.generate_keypair()
-    cert = zc.create_cert(issuer=owner_did, subject=new.did, scopes=[R.SCOPE], exp=exp,
+    from .custody import SCOPES as CUSTODY
+    cert = zc.create_cert(issuer=owner_did, subject=new.did, scopes=[R.SCOPE, *CUSTODY], exp=exp,
                           issuer_private_key=owner_sk)
     body = SU.build_succession_body(predecessor=old["agent"]["did"], successor=new.did,
                                     owner=owner_did, reason=reason, ts=R._now(),
@@ -234,6 +235,10 @@ def forget(domain: str, run_dir: Path, identity: dict, *, text: str | None = Non
     if not (text or task_id):
         raise ValueError("forget needs the record's text or its task id")
     tid = task_id or TS.trace_task_id(text)
+    from .custody import Custody
+    cust = Custody.load(run_dir)
+    if cust is not None:                    # the record's custody ends with its deletion
+        cust.touch([tid], "delete")
     tasks_file = R.DOMAINS / domain / "tasks.jsonl"
     rows = TS.load_tasks(tasks_file) if tasks_file.is_file() else []
     keep = [t for t in rows if t.get("id") != tid]

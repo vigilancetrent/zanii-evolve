@@ -323,6 +323,16 @@ anything that has to stage the harness first.
 | Publishing a certified gain | retries with backoff before any new cycle; after `--max-retries`, raises `publish_gave_up` |
 | A rollout stage gathering too few outcomes for `--stall-hours` | raises `rollout_stalled` once and keeps waiting |
 
+**Approvals.** `--require-approval publish,promote` makes those steps wait for
+the owner. `watch` raises `approval_required` with an id, the owner signs that
+exact action (`zanii_evolve.py --domain acme approve <id> --owner-key owner.json`),
+and the next tick carries it out. The approval is an owner-signed confirmation
+bound to the hash of that one action (the human gate of `zanii.runtime`, kept on
+disk so it survives between ticks): it cannot unlock a different action, a
+signature from anyone but the owner does not count, and an unanswered request
+expires after `--approval-ttl-hours` and is asked again. Rollback never waits.
+`approvals` lists what is pending.
+
 `--on-event` runs on every event except a quiet wait, with the event as JSON in
 `ZANII_EVOLVE_EVENT`: point it at a pager, a chat webhook or a ticket. Hooks run
 without a shell and with `--hook-timeout`. Every decision is appended to
@@ -470,6 +480,31 @@ python zanii_evolve.py data verify --proof proof.json --cert cert.json
 python zanii_evolve.py --domain acme data forget --text "the client's original request" --out deleted.json
 ```
 
+**Where a record went.** Client records (tasks minted from traces or a Blackbox
+gateway) are not left untouched: they are stored, and every evaluation and
+analysis sends them to a model. Each of those touches is a signed custody
+receipt (`zanii.data_custody`): `store` on ingest, `share` when a hosted model
+receives the record (naming the provider, with a `zanii.subprocessor` transfer
+under the agreement the domain declares), `read` when a local Ollama model
+used it, and `delete` on `forget`. The receipts form one hash chain, so a touch
+cannot be hidden, and name the record only by an HMAC ref. The signing identity
+is delegated exactly those operations, so an export or a transform cannot even
+produce a valid receipt.
+
+```json
+"subprocessors": {"anthropic": {"type": "zero-retention"}, "openai": {"type": "dpa", "id": "DPA-2026-07"}}
+```
+
+```bash
+python zanii_evolve.py --domain acme data custody --text "the client's original request"
+```
+
+`data custody` shows a client every recorded touch of their record, every
+recipient, whether it was deleted, and whether each recipient was declared
+(add `subprocessors` to the domain's `zanii_evolve.json`; a model provider that
+is not listed is flagged). What it cannot show is a copy taken outside the
+system, by someone with disk access; that takes an attested enclave.
+
 Every certificate commits to a sorted Merkle manifest of the exact tasks its
 cycle trained on (`zanii.train`), so a record can be proven in or out of that
 set against the signed hash. `forget` deletes a record from the task set and
@@ -590,6 +625,7 @@ smoke | baseline | calibrate | round | run | status | readjudicate | reevaluate 
 pareto | report | verify-report | verify-receipts | publish | registry | identity | rotate-identity
 init-domain | import-tasks | ingest-traces | ingest-blackbox | redteam | judge-agreement | lessons | watch | serve
 constitution | audit-rollout | verify-memory | data | ledger-check | anchor-identity | cv | risk-profile | sla | escrow | audit
+approvals | approve
 ```
 
 `python zanii_evolve.py --help` lists every option.

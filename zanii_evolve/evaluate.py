@@ -125,6 +125,8 @@ def evaluate(domain, root: Path, runs_dir: Path, job: str, ids: list[str],
     score it. Resume-safe: the domain runner fills only missing trials."""
     domain.run(root, runs_dir, job, ids, k, log_prefix=log_prefix)
     per_task, extra = domain.score(runs_dir, job, ids, k)
+    from .custody import on_evaluate           # client records went to the policy + judge models
+    on_evaluate(domain, runs_dir, ids)
     return aggregate(job, k, per_task, extra)
 
 

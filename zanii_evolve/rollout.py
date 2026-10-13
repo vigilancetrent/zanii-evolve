@@ -59,6 +59,7 @@ def load(run_dir: Path) -> dict | None:
 
 def save(run_dir: Path, st: dict) -> dict:
     p = Path(run_dir) / STATE
+    p.parent.mkdir(parents=True, exist_ok=True)
     tmp = p.with_suffix(".tmp")
     tmp.write_text(json.dumps(st, indent=1), encoding="utf-8")
     tmp.replace(p)                                # readers never see a half-written state
