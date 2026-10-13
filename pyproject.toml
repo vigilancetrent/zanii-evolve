@@ -15,7 +15,7 @@
 
 [project]
 name = "zanii-evolve"
-version = "0.3.1"
+version = "0.4.0"
 description = "Regularized self-improvement of LLM agent harnesses: gains that hold up out of distribution, with verifiable change history"
 readme = "README.md"
 license = "Apache-2.0"
@@ -90,7 +90,7 @@ build-backend = "setuptools.build_meta"
 include = ["zanii_evolve*"]
 
 [tool.setuptools.package-data]
-zanii_evolve = ["dashboard/*.html", "templates/**/*"]
+zanii_evolve = ["dashboard/*.html", "templates/**/*", "frameworks/*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

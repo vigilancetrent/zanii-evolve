@@ -1,0 +1,14 @@
+{
+  "_doc": "Arabic customer and citizen service: 36 tasks (make_tasks.py) in Gulf, Egyptian, Levantine, MSA, code-switching and Arabizi across 12 industries; 24 evolve / 8 held-out / 4 smoke. Sub-scores per dialect or industry: `dialects --job <job> --key dialect`. Brief domain. S = rubric+check criteria passed / total over evolve tasks x k trials. delta is null until `calibrate` (run `baseline` twice: --job base, --job base2, then `calibrate --jobs base,base2`). policy_model / judge_model take any provider-prefixed model string (anthropic/, vertex/, openai/).",
+  "T": 12, "k": 2, "m": 2,
+  "b_min": 1, "b_max": 3, "w": 3, "m_draft": 1,
+  "delta": null, "delta_z": 2.0,
+  "beta0": 0.10, "beta1": 10.0,
+  "w_s": 100.0, "w_c": 5.0, "w_n": 0.5,
+  "n_prune": 4,
+  "repair_rounds": 3, "invalid_missing_frac": 0.1,
+  "n_fail_traces": 30, "n_success_traces": 6, "eval_parallel": 1,
+  "policy_model": "claude-opus-5-5",
+  "judge_model": "claude-sonnet-5-5",
+  "max_concurrent": 8, "judge_concurrency": 8, "harness_timeout_s": 3600
+}

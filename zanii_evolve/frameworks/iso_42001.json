@@ -1,0 +1,21 @@
+{
+ "id": "iso_42001",
+ "title": "ISO/IEC 42001:2023 Artificial intelligence management system",
+ "version": "2023",
+ "scope": "Management-system clauses and Annex A controls that a measured, signed evaluation record supports. Policies, roles, competence and the statement of applicability stay with the organisation.",
+ "disclaimer": "Evidence mapping, not legal advice; confirm with counsel and your certification body.",
+ "controls": [
+  {"ref": "6.1", "title": "Actions to address risks and opportunities", "evidence": ["redteam", "certificate"]},
+  {"ref": "8.2", "title": "AI risk assessment", "evidence": ["redteam", "heldout"]},
+  {"ref": "8.3", "title": "AI risk treatment", "evidence": ["regression", "approvals"]},
+  {"ref": "8.4", "title": "AI system impact assessment", "evidence": ["certificate", "constitution"]},
+  {"ref": "9.1", "title": "Monitoring, measurement, analysis and evaluation", "evidence": ["certificate", "live_confirmation", "judge_kappa"]},
+  {"ref": "9.2", "title": "Internal audit", "evidence": ["receipts_chain", "statements_chain"]},
+  {"ref": "10", "title": "Improvement", "evidence": ["certificate", "live_confirmation"]},
+  {"ref": "A.6.2.4", "title": "AI system verification and validation", "evidence": ["certificate", "heldout", "regression", "judge_pack"]},
+  {"ref": "A.6.2.6", "title": "AI system operation and monitoring", "evidence": ["rollout_decisions", "live_confirmation"]},
+  {"ref": "A.6.2.8", "title": "AI system recording of event logs", "evidence": ["receipts_chain", "custody"]},
+  {"ref": "A.7", "title": "Data for AI systems", "evidence": ["tasks_manifest", "custody", "data_forget"]},
+  {"ref": "A.10", "title": "Third-party and customer relationships", "evidence": ["custody", "scorecard"]}
+ ]
+}

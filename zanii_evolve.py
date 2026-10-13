@@ -607,6 +607,8 @@ def main():
                str if name == "objective" else float)
         ap.add_argument("--" + name.replace("_", "-"), dest=name, type=typ, default=None)
     sub = ap.add_subparsers(dest="cmd", required=True)
+    from zanii_evolve import products
+    products.register(sub)
     sub.add_parser("baseline").add_argument("--job", default="base")
     sub.add_parser("calibrate").add_argument("--jobs", default="base")
     p = sub.add_parser("round")
@@ -795,6 +797,9 @@ def main():
     p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--port", type=int, default=8765)
     args = ap.parse_args()
+    rc = products.dispatch(args, ROOT)
+    if rc is not None:
+        sys.exit(rc)
 
     if args.cmd == "serve":
         from zanii_evolve.server import serve
@@ -1091,7 +1096,7 @@ def main():
         result = agreement(domain.tasks, labels, judge_model(domain))
         if args.record:
             from zanii_evolve.judgecal import record
-            record(run.runs, result)
+            record(run.runs, result, labels_path=args.labels)   # keeps the labels' sha256
         print(json.dumps(result, indent=1, ensure_ascii=False))
     elif args.cmd == "status":
         fr = run.frontier()

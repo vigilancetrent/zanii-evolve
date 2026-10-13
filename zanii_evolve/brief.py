@@ -26,7 +26,7 @@ A brief domain is a folder domains/<name>/ holding
 `python3 zanii_evolve.py init-domain <name>` scaffolds one from the template.
 
 Task line:
-    {"id": "mkt-001", "split": "evolve|heldout|smoke|redteam", ...public fields...,
+    {"id": "mkt-001", "split": "evolve|heldout|smoke|redteam|incident", ...public fields...,
      "checks": [...], "rubric": [{"criterion": "...", "weight": 1}]}
 
 Everything except PRIVATE_KEYS is handed to the harness; checks and rubric
@@ -61,6 +61,10 @@ from zanii_evolve.domain import Domain
 from zanii_evolve.evaluate import TaskResult
 
 PRIVATE_KEYS = {"checks", "rubric", "split", "expected", "notes"}
+# redteam and incident tasks are measured, never selected on (regress.py gates on them)
+SPLITS = ("evolve", "heldout", "smoke", "redteam", "incident")
+_SCRIPTS = {"arabic": "[\u0600-\u06FF\u0750-\u077F\uFB50-\uFDFF\uFE70-\uFEFF]",
+            "latin": "[A-Za-z\u00C0-\u024F]"}
 _ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,80}$")
 
 
@@ -76,8 +80,8 @@ def load_tasks(path: Path) -> list[dict]:
             raise ValueError(f"{path}:{n}: task id {tid!r} must match {_ID.pattern}")
         if tid in seen:
             raise ValueError(f"{path}:{n}: duplicate task id {tid!r}")
-        if t.get("split") not in ("evolve", "heldout", "smoke", "redteam"):
-            raise ValueError(f"{path}:{n}: split must be evolve, heldout, smoke or redteam")
+        if t.get("split") not in SPLITS:
+            raise ValueError(f"{path}:{n}: split must be one of {', '.join(SPLITS)}")
         if not (t.get("checks") or t.get("rubric")):
             raise ValueError(f"{path}:{n}: task {tid} has neither checks nor rubric")
         seen.add(tid)
@@ -132,6 +136,14 @@ def run_check(check: dict, text: str) -> tuple[bool, str]:
         if v is None:
             return False, f"field {check['field']!r} missing"
         return len(v) <= check["value"], f"{check['field']}: {len(v)} chars (max {check['value']})"
+    if t == "script":                     # share of letters in one script, e.g. Arabic replies
+        if check.get("script") not in _SCRIPTS:   # fails validation, not grading
+            raise ValueError(f"script check: script must be one of {sorted(_SCRIPTS)}")
+        letters = re.findall(r"[^\W\d_]", text)
+        share = (len(re.findall(_SCRIPTS[check["script"]], "".join(letters))) / len(letters)
+                 if letters else 0.0)
+        lo, hi = check.get("min", 0.0), check.get("max", 1.0)
+        return lo <= share <= hi, f"{share:.0%} {check['script']} letters (want {lo:.0%}-{hi:.0%})"
     raise ValueError(f"unknown check type {t!r}")
 
 
@@ -232,6 +244,11 @@ class BriefDomain(Domain):
         """Prompt-injection variants (tasksets.redteam); evaluated with
         `heldout --set redteam`, never part of selection."""
         return self._split("redteam")
+
+    def incident_ids(self):
+        """Tasks from past production incidents (ingest-blackbox --incidents): a
+        change that fails them again is a regression (regress.py); never selected on."""
+        return self._split("incident")
 
     def smoke_ids(self, incumbent_per_task=None):
         return self._split("smoke") or self.evolve_ids()[:2]
@@ -398,7 +415,8 @@ class BriefDomain(Domain):
         root, runs_dir = Path(root), Path(runs_dir)
         comp = subprocess.run([self.cfg.get("agent_python") or sys.executable, "-m",
                                "compileall", "-q", str(self.harness_dir(root))],
-                              capture_output=True, text=True)
+                              capture_output=True, text=True, encoding="utf-8",
+                              errors="replace")
         if comp.returncode != 0:
             return False, {"stage": "compile", "detail": (comp.stdout + comp.stderr)[-1500:]}
         label = f"{job}/s0"

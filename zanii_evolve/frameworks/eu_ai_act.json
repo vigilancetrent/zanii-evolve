@@ -1,0 +1,18 @@
+{
+ "id": "eu_ai_act",
+ "title": "EU Artificial Intelligence Act, Regulation (EU) 2024/1689",
+ "version": "OJ L, 12 July 2024",
+ "scope": "Requirements for high-risk AI systems (Chapter III, Section 2) and provider obligations. Evolve evidences the technical measurements; the risk classification, conformity assessment and organisational procedures stay with the provider.",
+ "disclaimer": "Evidence mapping, not legal advice; confirm with counsel.",
+ "controls": [
+  {"ref": "Art. 9", "title": "Risk management system", "evidence": ["certificate", "heldout", "redteam", "regression", "live_confirmation"]},
+  {"ref": "Art. 10", "title": "Data and data governance", "evidence": ["tasks_manifest", "custody", "data_forget"]},
+  {"ref": "Art. 11", "title": "Technical documentation", "evidence": ["certificate", "constitution", "judge_pack"]},
+  {"ref": "Art. 12", "title": "Record-keeping", "evidence": ["receipts_chain", "statements_chain", "rollout_decisions", "custody"]},
+  {"ref": "Art. 13", "title": "Transparency and provision of information to deployers", "evidence": ["certificate", "constitution"]},
+  {"ref": "Art. 14", "title": "Human oversight", "evidence": ["approvals", "rollout_decisions"]},
+  {"ref": "Art. 15", "title": "Accuracy, robustness and cybersecurity", "evidence": ["certificate", "heldout", "redteam", "migration", "regression"]},
+  {"ref": "Art. 17", "title": "Quality management system", "evidence": ["receipts_chain", "regression", "judge_kappa"]},
+  {"ref": "Art. 72", "title": "Post-market monitoring by providers", "evidence": ["live_confirmation", "rollout_decisions"]}
+ ]
+}

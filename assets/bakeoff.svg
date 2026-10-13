@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="380" viewBox="0 0 1200 380" role="img" aria-labelledby="t d">
+  <title id="t">A procurement bake-off scorecard</title>
+  <desc id="d">Four vendors are measured on the same hidden tasks with the same judge. Each bar shows the vendor's score with its 95% range. Vendors A and B are within the noise of each other and share rank 1; vendor C is rank 2; vendor D is rank 3. Vendors only ever see the brief; the signed scorecard names the task set by the hash of its task ids.</desc>
+  <defs>
+    <style>
+      text { font-family: Inter, "Segoe UI", Helvetica, Arial, sans-serif; }
+      .lbl { font-size: 12px; font-weight: 600; fill: #64748B; letter-spacing: 1px; }
+      .h { font-size: 15px; font-weight: 600; fill: #0F172A; }
+      .s { font-size: 13px; fill: #475569; }
+      .ax { font-size: 12px; fill: #64748B; }
+      .v { font-size: 13px; font-weight: 600; fill: #0F172A; }
+      .pill { font-size: 12px; font-weight: 600; fill: #FFFFFF; }
+    </style>
+  </defs>
+  <rect width="1200" height="380" rx="18" fill="#F8FAFC"/>
+  <text x="40" y="50" class="lbl">VENDOR</text>
+  <text x="250" y="50" class="lbl">RANK</text>
+  <text x="380" y="50" class="lbl">SCORE ON YOUR HIDDEN TASKS (95% RANGE)</text>
+
+  <!-- x = 380 + S * 680 -->
+  <g stroke="#E2E8F0" stroke-width="1">
+    <line x1="380" y1="64" x2="380" y2="296"/><line x1="550" y1="64" x2="550" y2="296"/>
+    <line x1="720" y1="64" x2="720" y2="296"/><line x1="890" y1="64" x2="890" y2="296"/>
+    <line x1="1060" y1="64" x2="1060" y2="296"/>
+  </g>
+
+  <text x="40" y="100" class="h">Vendor A</text>
+  <rect x="250" y="84" width="64" height="24" rx="12" fill="#0F766E"/><text x="282" y="101" text-anchor="middle" class="pill">#1</text>
+  <rect x="380" y="86" width="619" height="20" rx="4" fill="#99F6E4"/>
+  <line x1="979" y1="96" x2="1020" y2="96" stroke="#0F766E" stroke-width="3"/>
+  <text x="1030" y="101" class="v">0.91</text>
+
+  <text x="40" y="160" class="h">Vendor B</text>
+  <rect x="250" y="144" width="64" height="24" rx="12" fill="#0F766E"/><text x="282" y="161" text-anchor="middle" class="pill">#1</text>
+  <rect x="380" y="146" width="605" height="20" rx="4" fill="#99F6E4"/>
+  <line x1="962" y1="156" x2="1008" y2="156" stroke="#0F766E" stroke-width="3"/>
+  <text x="1030" y="161" class="v">0.89</text>
+  <text x="250" y="186" class="ax">tied with A: inside the noise</text>
+
+  <text x="40" y="220" class="h">Vendor C</text>
+  <rect x="250" y="204" width="64" height="24" rx="12" fill="#475569"/><text x="282" y="221" text-anchor="middle" class="pill">#2</text>
+  <rect x="380" y="206" width="530" height="20" rx="4" fill="#CBD5E1"/>
+  <line x1="884" y1="216" x2="938" y2="216" stroke="#475569" stroke-width="3"/>
+  <text x="1030" y="221" class="v">0.78</text>
+
+  <text x="40" y="280" class="h">Vendor D</text>
+  <rect x="250" y="264" width="64" height="24" rx="12" fill="#94A3B8"/><text x="282" y="281" text-anchor="middle" class="pill">#3</text>
+  <rect x="380" y="266" width="286" height="20" rx="4" fill="#E2E8F0"/>
+  <line x1="642" y1="276" x2="690" y2="276" stroke="#64748B" stroke-width="3"/>
+  <text x="1030" y="281" class="v">0.42</text>
+
+  <text x="380" y="314" text-anchor="middle" class="ax">0</text>
+  <text x="720" y="314" text-anchor="middle" class="ax">0.5</text>
+  <text x="1060" y="314" text-anchor="middle" class="ax">1</text>
+
+  <rect x="40" y="328" width="1120" height="36" rx="8" fill="#F0FDFA" stroke="#14B8A6" stroke-width="1.2"/>
+  <text x="600" y="351" text-anchor="middle" class="s">Vendors see only the brief, never the checks or the rubric · same judge for all · signed scorecard names the task set by hash</text>
+</svg>

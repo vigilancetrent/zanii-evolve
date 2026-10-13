@@ -1,5 +1,43 @@
 # Changelog
 
+## 0.4.0 (unreleased)
+
+Twelve products on one evaluation core; every result is a signed statement.
+
+- **Core.** `statement.py` (signed statements of any kind: digest, HMAC, zanii receipt
+  chained on `runs/<d>/statements.jsonl`, a copy in `runs/<d>/statements/`; unsigned
+  ones verify only on request), `compare.py` (any harness with any model on any split;
+  paired task-by-task difference with a seeded 95% range, better / worse / unclear,
+  non-inferior against the noise band; refuses different task sets, `too_few` under 5
+  tasks), `products.py` (each product adds its own subcommand), `net.py` (https only,
+  no redirects, bounded reads, offline guard, for every call that carries a token).
+- **`migrate`**: model migration certificate on the same commit and judge;
+  `--plan` lists models Blackbox flags `MODEL_DEPRECATED`.
+- **`savings`**: savings statement from real input/output tokens at Decimal prices,
+  money a month in the currency's minor unit; certified only when quality held.
+- **`regress`** and `action.yml`: no-regression gate on held-out, incident and
+  red-team tasks for CI; new `incident` split (measured, never selected on).
+- **`rulebook draft | coverage`**: test tasks drafted from a document's clauses, each
+  criterion naming its clause; reviewed before import.
+- **`evidence-pack`** with `frameworks/` for the EU AI Act, ISO/IEC 42001, the UAE AI
+  Charter and UAE PDPL; only verified evidence counts; signed zip.
+- **`bakeoff`**: vendors (harness or HTTPS endpoint, `templates/vendor_http`) on the same
+  hidden tasks; noise-tied ranks; signed scorecard.
+- **`domains/arabic_service`** (36 tasks, 6 dialect groups, 12 industries), **`dialects`**
+  (sub-scores by any task tag) and a `script` check (share of Arabic or Latin letters).
+- **`redteam-round` / `redteam-score`**: ten attack kinds incl. Arabic, secret per-round
+  canaries, resistance apart from quality with its monthly trend.
+- **Air-gapped**: `ZANII_EVOLVE_OFFLINE=1` refuses non-local providers and hosts
+  (IPv4-mapped IPv6 unwrapped); `airgap-check`; the dashboard loads no web fonts.
+- **`store search | install | tag`**: install only when the archive's git tree is the
+  signed certificate's harness tree; `registry.publish(industry=, tags=, description=)`.
+- **`judge-pack export | verify`**; `judge-agreement --record` keeps the kappa range,
+  raters and the labels' sha256.
+- **`confirm-live`**: rollout outcomes plus Blackbox growth, signed `confirmed`,
+  `too_early` or `regressed`.
+- **Fix:** `gitops.tree_hash` got Windows backslash paths, so `harness_tree` held git's
+  echoed argument instead of a hash and the harness-tamper check could not fail.
+
 ## 0.3.1 (2026-10-13)
 
 - **Custody of client records** (`zanii.data_custody`, `zanii.subprocessor`). Every

@@ -1,0 +1,94 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="560" viewBox="0 0 1200 560" role="img" aria-labelledby="t d">
+  <title id="t">Twelve products on one evaluation core</title>
+  <desc id="d">Twelve services in four groups. Move and save: model migration, savings statement, certified harness store. Gate and choose: CI regression gate, procurement bake-off, rulebook as tests. Prove: compliance evidence packs, expert judge packs, air-gapped check. Live: Arabic and dialect scores, red-team score, live confirmation. All share one core that measures any harness with any model on any split and signs the result.</desc>
+  <defs>
+    <style>
+      text { font-family: Inter, "Segoe UI", Helvetica, Arial, sans-serif; }
+      .lbl { font-size: 12px; font-weight: 600; fill: #64748B; letter-spacing: 1px; }
+      .h { font-size: 15px; font-weight: 600; fill: #0F172A; }
+      .c { font-family: "JetBrains Mono", Consolas, Menlo, monospace; font-size: 12.5px; fill: #0F766E; font-weight: 600; }
+      .s { font-size: 12.5px; fill: #475569; }
+      .tile { fill: #FFFFFF; stroke: #CBD5E1; stroke-width: 1.5; }
+      .bar { fill: #14B8A6; }
+      .foot { font-size: 13.5px; fill: #0F172A; }
+      .core { fill: #F0FDFA; stroke: #14B8A6; stroke-width: 1.2; }
+    </style>
+  </defs>
+  <rect width="1200" height="560" rx="18" fill="#F8FAFC"/>
+
+  <text x="40" y="58" class="lbl">MOVE &amp; SAVE</text>
+  <text x="325" y="58" class="lbl">GATE &amp; CHOOSE</text>
+  <text x="610" y="58" class="lbl">PROVE</text>
+  <text x="895" y="58" class="lbl">LIVE &amp; LOCAL</text>
+
+  <!-- column 1 -->
+  <g transform="translate(40 76)">
+    <rect width="265" height="120" rx="10" class="tile"/><rect width="4" height="120" rx="2" class="bar"/>
+    <text x="20" y="32" class="h">Model migration</text><text x="20" y="54" class="c">migrate --from A --to B</text>
+    <text x="20" y="80" class="s">Move to a new model, proven no</text><text x="20" y="98" class="s">worse on your held-out tasks</text>
+  </g>
+  <g transform="translate(40 210)">
+    <rect width="265" height="120" rx="10" class="tile"/><rect width="4" height="120" rx="2" class="bar"/>
+    <text x="20" y="32" class="h">Savings statement</text><text x="20" y="54" class="c">savings --prices p.json</text>
+    <text x="20" y="80" class="s">Money saved a month in AED,</text><text x="20" y="98" class="s">certified only if quality held</text>
+  </g>
+  <g transform="translate(40 344)">
+    <rect width="265" height="120" rx="10" class="tile"/><rect width="4" height="120" rx="2" class="bar"/>
+    <text x="20" y="32" class="h">Certified harness store</text><text x="20" y="54" class="c">store search | install</text>
+    <text x="20" y="80" class="s">Harnesses by industry; install</text><text x="20" y="98" class="s">checks the signed git tree</text>
+  </g>
+
+  <!-- column 2 -->
+  <g transform="translate(325 76)">
+    <rect width="265" height="120" rx="10" class="tile"/><rect width="4" height="120" rx="2" class="bar"/>
+    <text x="20" y="32" class="h">CI regression gate</text><text x="20" y="54" class="c">regress --base main</text>
+    <text x="20" y="80" class="s">Blocks a change that breaks</text><text x="20" y="98" class="s">held-out or incident tasks</text>
+  </g>
+  <g transform="translate(325 210)">
+    <rect width="265" height="120" rx="10" class="tile"/><rect width="4" height="120" rx="2" class="bar"/>
+    <text x="20" y="32" class="h">Procurement bake-off</text><text x="20" y="54" class="c">bakeoff --vendors v.json</text>
+    <text x="20" y="80" class="s">Vendors on the same hidden tasks,</text><text x="20" y="98" class="s">ties inside the noise share a rank</text>
+  </g>
+  <g transform="translate(325 344)">
+    <rect width="265" height="120" rx="10" class="tile"/><rect width="4" height="120" rx="2" class="bar"/>
+    <text x="20" y="32" class="h">Rulebook as tests</text><text x="20" y="54" class="c">rulebook draft --file sop.md</text>
+    <text x="20" y="80" class="s">Your SOP or regulation, turned</text><text x="20" y="98" class="s">into tests clause by clause</text>
+  </g>
+
+  <!-- column 3 -->
+  <g transform="translate(610 76)">
+    <rect width="265" height="120" rx="10" class="tile"/><rect width="4" height="120" rx="2" class="bar"/>
+    <text x="20" y="32" class="h">Compliance evidence</text><text x="20" y="54" class="c">evidence-pack</text>
+    <text x="20" y="80" class="s">EU AI Act, ISO/IEC 42001, UAE AI</text><text x="20" y="98" class="s">Charter, PDPL: verified only</text>
+  </g>
+  <g transform="translate(610 210)">
+    <rect width="265" height="120" rx="10" class="tile"/><rect width="4" height="120" rx="2" class="bar"/>
+    <text x="20" y="32" class="h">Expert judge packs</text><text x="20" y="54" class="c">judge-pack export</text>
+    <text x="20" y="80" class="s">The judge against your experts:</text><text x="20" y="98" class="s">kappa, its range, the labels' hash</text>
+  </g>
+  <g transform="translate(610 344)">
+    <rect width="265" height="120" rx="10" class="tile"/><rect width="4" height="120" rx="2" class="bar"/>
+    <text x="20" y="32" class="h">Air-gapped edition</text><text x="20" y="54" class="c">airgap-check --sign</text>
+    <text x="20" y="80" class="s">Local models only, and signed</text><text x="20" y="98" class="s">proof nothing left the building</text>
+  </g>
+
+  <!-- column 4 -->
+  <g transform="translate(895 76)">
+    <rect width="265" height="120" rx="10" class="tile"/><rect width="4" height="120" rx="2" class="bar"/>
+    <text x="20" y="32" class="h">Arabic &amp; dialects</text><text x="20" y="54" class="c">dialects --key dialect</text>
+    <text x="20" y="80" class="s">Gulf, Egyptian, Levantine, MSA,</text><text x="20" y="98" class="s">code-switching: a score each</text>
+  </g>
+  <g transform="translate(895 210)">
+    <rect width="265" height="120" rx="10" class="tile"/><rect width="4" height="120" rx="2" class="bar"/>
+    <text x="20" y="32" class="h">Red-team subscription</text><text x="20" y="54" class="c">redteam-round | -score</text>
+    <text x="20" y="80" class="s">Fresh attacks each month, secret</text><text x="20" y="98" class="s">canaries, resistance trend</text>
+  </g>
+  <g transform="translate(895 344)">
+    <rect width="265" height="120" rx="10" class="tile"/><rect width="4" height="120" rx="2" class="bar"/>
+    <text x="20" y="32" class="h">Live confirmation</text><text x="20" y="54" class="c">confirm-live</text>
+    <text x="20" y="80" class="s">Rollout plus Blackbox growth: the</text><text x="20" y="98" class="s">gain held up in production</text>
+  </g>
+
+  <rect x="40" y="486" width="1120" height="46" rx="10" class="core"/>
+  <text x="600" y="515" text-anchor="middle" class="foot"><tspan font-weight="600">One core:</tspan> any harness × any model × any split → task-by-task difference with a 95% range → a signed statement</text>
+</svg>

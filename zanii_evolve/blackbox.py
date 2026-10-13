@@ -41,10 +41,10 @@ import hashlib
 import json
 import urllib.error
 import urllib.parse
-import urllib.request
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 
+from . import net as NET
 from .tasksets import redact
 
 Get = Callable[[str], bytes]
@@ -73,11 +73,9 @@ def http_get(url: str, key: str, timeout: float = 30.0) -> Get:
     base = url.rstrip("/")
 
     def get(path: str) -> bytes:
-        req = urllib.request.Request(base + path, headers={"authorization": f"Bearer {key}"})
-        try:
-            # the operator's own gateway URL
-            with urllib.request.urlopen(req, timeout=timeout) as r:
-                return r.read(MAX_BODY + 1)
+        try:                       # https, no redirects, local when offline (net.py)
+            return NET.request("GET", base + path, {"authorization": f"Bearer {key}"},
+                               timeout=timeout, max_bytes=MAX_BODY, truncate=True)
         except urllib.error.HTTPError as e:
             raise RuntimeError(f"Blackbox answered {e.code} for {path.split('?')[0]}: "
                                f"{e.read(300).decode('utf-8', 'replace')}") from e
@@ -237,3 +235,28 @@ def to_tasks(runs: list[dict], cat: dict[str, dict], rubric: list[str],
                                        "outcome": run.get("outcome"), "codes": found}}}
         (fails if bad else rest).append(task)
     return (fails + rest)[:limit]
+
+
+def deprecated_models(get: Get, label: str, limit: int = 100) -> dict[str, int]:
+    """Model -> how many of the label's newest `limit` closed runs called it while
+    Blackbox's price table marks it deprecated (MODEL_DEPRECATED findings). Not a
+    task criterion (NOT_BEHAVIOUR): it is the cue for `migrate`."""
+    q = {"label": label, "status": "closed", "limit": str(min(1000, limit))}
+    ids = [s["session_id"] for s in
+           json.loads(get("/v1/sessions?" + urllib.parse.urlencode(q))).get("sessions") or []]
+
+    def models(sid: str) -> set[str]:
+        try:
+            found = json.loads(get(f"/v1/sessions/{sid}/findings")).get("findings") or []
+        except (RuntimeError, OSError, ValueError):
+            return set()                  # an unreadable run says nothing about models
+        refs = [((f.get("meta") or {}).get("ref") or {}) for f in found
+                if f.get("code") == "MODEL_DEPRECATED"]
+        return {str(r["model"]) for r in refs if r.get("model")}
+
+    out: dict[str, int] = {}
+    with ThreadPoolExecutor(max_workers=WORKERS) as ex:
+        for ms in ex.map(models, ids[:limit]):
+            for m in ms:
+                out[m] = out.get(m, 0) + 1
+    return dict(sorted(out.items(), key=lambda kv: -kv[1]))

@@ -77,15 +77,36 @@ def agreement(tasks: dict, labels: list[dict], model: str, judge=None) -> dict:
                   key=lambda c: c["agreement"])
     return {"model": model, "n": len(pairs),
             "agreement": (sum(h == j for h, j in pairs) / len(pairs)) if pairs else None,
-            "kappa": kappa(pairs), "per_criterion": rows, "disagreements": disagree[:50]}
+            "kappa": kappa(pairs), "kappa_range95": kappa_range(pairs),
+            "raters": sorted({str(lab["rater"]) for lab in labels if lab.get("rater")}),
+            "per_criterion": rows, "disagreements": disagree[:50]}
+
+
+def kappa_range(pairs: list[tuple[bool, bool]], reps: int = 2000,
+                seed: int = 7) -> list[float] | None:
+    """95% range of kappa from resampling the judged pairs (seeded); None when
+    there are too few pairs or every resample has constant raters."""
+    import random
+    if len(pairs) < 2:
+        return None
+    rng = random.Random(seed)
+    ks = sorted(k for k in (kappa([pairs[rng.randrange(len(pairs))] for _ in pairs])
+                            for _ in range(reps)) if k is not None)
+    if not ks:
+        return None
+    return [round(ks[int(0.025 * len(ks))], 4), round(ks[int(0.975 * len(ks)) - 1], 4)]
 
 
 RECORD = "judge_agreement.json"
 
 
-def record(run_dir, result: dict) -> dict:
+def record(run_dir, result: dict, labels_path=None, raters_path=None) -> dict:
     """Keep an agreement result as runs/<domain>/judge_agreement.json, for the gate
-    and the certificate: the judge model, kappa, agreement and how many pairs."""
+    and the certificate: the judge model, kappa, agreement and how many pairs.
+    Also kept when known: kappa's 95% range, who graded (the labels' `rater`
+    field, with credentials from raters.json [{id, credential}]) and the sha256 of
+    the labels file, so a judge pack proves which human grades it was checked on."""
+    import hashlib
     import json
     import time
     from pathlib import Path
@@ -93,6 +114,21 @@ def record(run_dir, result: dict) -> dict:
     kept = {"model": result["model"], "kappa": result["kappa"],
             "agreement": result["agreement"], "n": result["n"],
             "recorded_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+    if result.get("kappa_range95") is not None:
+        kept["kappa_range95"] = result["kappa_range95"]
+    # only people who graded a label; raters.json adds their credentials, never names
+    raters = [{"id": r} for r in result.get("raters") or []]
+    if raters_path:
+        creds = {str(r["id"]): r for r in json.loads(Path(raters_path).read_text(
+            encoding="utf-8"))}
+        raters = [{**r, **({"credential": str(creds[r["id"]]["credential"]),
+                            "credential_source": "self-declared (raters.json, not verified)"}
+                           if creds.get(r["id"], {}).get("credential") else {})}
+                  for r in raters]
+    if raters:
+        kept["raters"] = raters
+    if labels_path:
+        kept["labels_sha256"] = hashlib.sha256(Path(labels_path).read_bytes()).hexdigest()
     p = Path(run_dir)
     p.mkdir(parents=True, exist_ok=True)
     (p / RECORD).write_text(json.dumps(kept, indent=1), encoding="utf-8")

@@ -40,8 +40,11 @@ def default_root(repo: Path) -> Path:
 
 
 def publish(repo: Path, run_dir: Path, harness_rel: str, root: Path,
-            key: str | None = None, identity: dict | None = None) -> dict:
-    """identity None: ZANII_EVOLVE_IDENTITY when set (see report.issue)."""
+            key: str | None = None, identity: dict | None = None, industry: str | None = None,
+            tags: list[str] | None = None, description: str | None = None) -> dict:
+    """identity None: ZANII_EVOLVE_IDENTITY when set (see report.issue). industry, tags
+    and description are store metadata (zanii_evolve.store): in the manifest, not in
+    the signed certificate."""
     cert = R.issue(run_dir, identity=identity, key=key)
     commit = cert["incumbent"]["commit"]
     if not commit:
@@ -49,8 +52,10 @@ def publish(repo: Path, run_dir: Path, harness_rel: str, root: Path,
     dest = Path(root) / cert["domain"] / str(commit)[:8]
     dest.mkdir(parents=True, exist_ok=True)
     tar = dest / "harness.tar.gz"
-    G.git(repo, "archive", "--format=tar.gz", "-o", str(tar), str(commit), "--",
-          harness_rel, check=True)
+    # the committed bytes (no CRLF smudging), so the files hash to the certificate's
+    # harness_tree and `store install` can bind the archive to it
+    G.git(repo, "-c", "core.autocrlf=false", "archive", "--format=tar.gz", "-o", str(tar),
+          str(commit), "--", harness_rel, check=True)
     (dest / "certificate.json").write_text(json.dumps(cert, indent=1), encoding="utf-8")
     manifest = {
         "domain": cert["domain"], "commit": commit, "harness_path": harness_rel,
@@ -61,6 +66,7 @@ def publish(repo: Path, run_dir: Path, harness_rel: str, root: Path,
         "receipt_owner": cert["receipt"]["delegation"][0]["issuer"] if "receipt" in cert else None,
         "harness_sha256": hashlib.sha256(tar.read_bytes()).hexdigest(),
         "published_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "industry": industry, "tags": sorted(set(tags or [])), "description": description,
     }
     (dest / "manifest.json").write_text(json.dumps(manifest, indent=1), encoding="utf-8")
     return manifest

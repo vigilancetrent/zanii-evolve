@@ -20,6 +20,12 @@ Every accepted change is a git commit with a stated hypothesis and a measured
 effect. A run ends with a certificate you can hand to a reviewer, optionally
 signed so that anyone can verify who issued it without trusting you.
 
+On the same core it ships twelve services an organisation in any industry can rent:
+model migration with a certificate, signed savings in AED, a CI regression gate,
+procurement bake-offs, compliance evidence packs (EU AI Act, ISO/IEC 42001,
+UAE AI Charter, PDPL), Arabic dialect certification, a monthly red-team score,
+an air-gapped edition and more. See [Products](#products).
+
 Maintained by [zaniiai agency](https://github.com/zaniiai).
 
 ---
@@ -36,6 +42,7 @@ Maintained by [zaniiai agency](https://github.com/zaniiai).
 - [Memory](#memory)
 - [Dashboard and HTTP API](#dashboard-and-http-api)
 - [Configuration](#configuration)
+- [Products](#products)
 - [Command reference](#command-reference)
 - [Project layout](#project-layout)
 - [Acknowledgements](#acknowledgements)
@@ -617,6 +624,58 @@ on the command line (`--T`, `--k`, `--m`, `--delta`, `--beta0`, `--beta1`,
 
 Keep keys in the environment or a secrets manager. `runs/`, `registry/` and
 identity files are ignored by git.
+
+## Products
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/vigilancetrent/zanii-evolve/main/assets/products.svg" width="100%" alt="Twelve products in four groups: move and save, gate and choose, prove, live and local; one core measures any harness with any model and signs the result">
+</p>
+
+Twelve services built on the same evaluation core: any harness, any model, any
+split, compared task by task with a 95% range, and every result handed out as a
+signed statement (`zanii_evolve/statement.py`: digest, HMAC with
+`ZANII_EVOLVE_SIGNING_KEY`, and with an identity a zanii receipt chained onto
+`runs/<d>/statements.jsonl`). A copy of each statement is kept in
+`runs/<d>/statements/`, where `evidence-pack` finds it. Comparisons refuse two
+measurements of different tasks, and fewer than 5 shared tasks give `too_few`,
+never a verdict.
+
+| Command | What a customer gets | Exit 1 when |
+|---|---|---|
+| `migrate --from A --to B` | Both models on the same commit, judge and held-out / red-team / incident tasks; "safe to migrate" only if B is non-inferior on every split. `--plan --blackbox-url U --label L` lists the models Blackbox flags `MODEL_DEPRECATED` in live runs. | B is worse beyond the margin |
+| `savings --prices p.json --runs-per-month N` | Real input/output tokens at your contract prices (exact decimals), money saved a month in the currency's minor unit (AED 2 decimals); certified only when quality held. | quality dropped, or no saving |
+| `regress --base origin/main` (+ `action.yml`) | A no-regression gate for every prompt or harness change, on held-out, incident and red-team tasks; Markdown for the PR summary. `uses: vigilancetrent/zanii-evolve@v0.4` with `domain:` (needs `fetch-depth: 0`). | head is worse, or nothing was measured |
+| `rulebook draft --file sop.md` / `rulebook coverage` | Your SOP, policy or regulation split into clauses (id + sha256); a model drafts test tasks per clause, each rubric line naming its clause. Never written to `tasks.jsonl` until a person reviews it (`import-tasks`). | |
+| `evidence-pack --framework eu_ai_act,iso_42001,uae_ai_charter,uae_pdpl` | Each control mapped to the evidence this domain actually has; only verified signatures count; a zip with a sha256 index and a signed `evidence_pack` statement. An evidence mapping, not legal advice. | |
+| `bakeoff --vendors vendors.json` | Every vendor (a harness folder, or an HTTPS endpoint via `templates/vendor_http`) on the same hidden tasks with the same judge; vendors inside the noise share a rank; a signed scorecard that names the task set only by hash. Give untrusted vendors a URL, not code. | |
+| `domains/arabic_service` + `dialects --job J --key dialect` | 36 service tasks in Gulf, Egyptian, Levantine, MSA, code-switching and Arabizi across 12 industries; one score split per dialect or industry (any `notes` key) with 95% ranges. Native-speaker review before a certificate is sold. | |
+| `redteam-round --round 2026-10` / `redteam-score` | Fresh attacks every month (ten kinds, incl. Arabic) with secret per-round canaries (`ZANII_EVOLVE_REDTEAM_SALT`); resistance scored apart from task quality, per attack, with the trend against last month; missing trials count against it. | below `--min`, or > 20% missing |
+| `ZANII_EVOLVE_OFFLINE=1` + `airgap-check --sign` | Only local providers (Ollama, or `ZANII_EVOLVE_OFFLINE_ALLOW`) on loopback or private hosts run; every role model and URL is listed and signed. | anything would leave the machine |
+| `store search` / `store install D/C --to DIR --owner DID` / `store tag` | Published harnesses by industry, tag or text; install only when the archive's git tree equals the signed certificate's harness tree, the certificate verifies and its owner is pinned. Tags are search metadata; the certificate is what you trust. | any check fails |
+| `judge-pack export --labels expert.jsonl --raters raters.json` / `verify` | The judge's agreement with named expert graders: kappa with its 95% range, per criterion, the labels' sha256; credentials are self-declared. | verify fails |
+| `confirm-live --cert C [--blackbox-url U --label L]` | After a promotion: the rollout's canary vs stable outcomes and Blackbox's growth for the version that named the certificate, signed `confirmed`, `too_early` or `regressed`. Confirmed needs positive evidence on `--min-runs` runs. | regressed, or no live evidence |
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/vigilancetrent/zanii-evolve/main/assets/migration.svg" width="100%" alt="B minus A per task with a 95% range: safe only when the low end stays above minus the margin; worse is blocked, unclear is not certified">
+</p>
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/vigilancetrent/zanii-evolve/main/assets/bakeoff.svg" width="100%" alt="A bake-off scorecard: vendors on the same hidden tasks, ranked, with vendors inside the noise sharing a rank">
+</p>
+
+### The self-improving agent, with an auditor
+
+Blackbox and Evolve together: live failures become tasks, a certified gain passes the
+regression gate, a person approves it, a staged rollout ships it and `confirm-live`
+signs whether it held up in production.
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/vigilancetrent/zanii-evolve/main/assets/loop.svg" width="100%" alt="Seven signed steps: record, learn the misses, evolve, gate, a person approves, roll out, confirm live; then the loop starts again">
+</p>
+
+Every network call that carries a token (Blackbox, vendors) goes through
+`zanii_evolve/net.py`: https only (http only to loopback), no redirects, bounded
+reads, and the offline guard.
 
 ## Command reference
 

@@ -231,6 +231,61 @@ def _load_plugins() -> None:
         _FACTORIES.setdefault(name.strip(), getattr(importlib.import_module(mod.strip()), attr.strip()))
 
 
+# ---------------------------------------------------------------- offline ---
+# ZANII_EVOLVE_OFFLINE=1 (the air-gapped edition): only these providers, plus the names
+# in ZANII_EVOLVE_OFFLINE_ALLOW, may run, and only against a loopback or private host.
+OFFLINE_LOCAL = {"ollama", "fake"}          # same set as custody.LOCAL
+BASE_URLS = {"openai": OpenAICompatProvider, "ollama": OllamaProvider}
+
+
+def offline() -> bool:
+    return os.environ.get("ZANII_EVOLVE_OFFLINE", "").strip().lower() in ("1", "true", "yes")
+
+
+def _allow() -> set[str]:
+    return {x.strip() for x in os.environ.get("ZANII_EVOLVE_OFFLINE_ALLOW", "").split(",")
+            if x.strip()}
+
+
+def local_url(url: str) -> bool:
+    """Whether `url` points at this machine or a private network (or an allowed host)."""
+    import ipaddress
+    import urllib.parse
+    host = (urllib.parse.urlsplit(url).hostname or "").lower()
+    if not host:
+        return False
+    if host == "localhost" or host.endswith(".localhost") or host in _allow():
+        return True
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return False                         # a public or unknown name: it may resolve anywhere
+    if ip.version == 6:
+        if ip.teredo:                        # tunnelled through public Teredo relays
+            return False
+        ip = ip.ipv4_mapped or ip.sixtofour or ip   # the IPv4 address it carries is judged
+    if ip.is_unspecified or ip.is_multicast:  # 0.0.0.0 / :: is not a destination
+        return False
+    return ip.is_loopback or ip.is_private or ip.is_link_local
+
+
+def base_url(prefix: str) -> str | None:
+    cls = BASE_URLS.get(prefix)
+    return os.environ.get(cls.BASE_ENV, cls.DEFAULT_BASE) if cls else None
+
+
+def offline_refusal(prefix: str) -> str | None:
+    """Why this provider may not run offline, or None when it may."""
+    if prefix not in OFFLINE_LOCAL | _allow():
+        return (f"ZANII_EVOLVE_OFFLINE is set: provider {prefix!r} would send data off this "
+                f"machine (allowed: {sorted(OFFLINE_LOCAL | _allow())}; add names to "
+                f"ZANII_EVOLVE_OFFLINE_ALLOW)")
+    url = base_url(prefix)
+    if url and not local_url(url):
+        return f"ZANII_EVOLVE_OFFLINE is set: {prefix} base URL {url} is not a local host"
+    return None
+
+
 def resolve(model: str):
     """`prefix/model` -> (provider, model id). Bare ids are Claude: Vertex when
     projects are configured, else the Anthropic API."""
@@ -238,6 +293,9 @@ def resolve(model: str):
     if not rest:
         prefix, rest = ("vertex" if os.environ.get("ZANII_EVOLVE_VERTEX_PROJECTS") else
                         "anthropic"), model
+    why = offline_refusal(prefix) if offline() else None
+    if why:
+        raise ProviderError(why, retryable=False)
     with _lock:
         if prefix not in PROVIDERS:
             if prefix not in _FACTORIES:

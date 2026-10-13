@@ -1,0 +1,76 @@
+name: Zanii Evolve regression gate
+description: >-
+  Measure the base and head of a pull request on the domain's heldout, incident and
+  redteam tasks and fail the check when the head regressed beyond the noise band.
+branding:
+  icon: shield
+  color: green
+inputs:
+  domain:
+    description: Domain under domains/ to measure
+    required: true
+  base:
+    description: Git ref to compare against
+    required: false
+    default: ${{ github.event.pull_request.base.sha }}
+  head:
+    description: Git ref under test
+    required: false
+    default: ${{ github.sha }}
+  sets:
+    description: Comma-separated splits (heldout, incident, redteam)
+    required: false
+    default: heldout,incident,redteam
+  k:
+    description: Trials per task (empty = the domain's config k)
+    required: false
+    default: ""
+  margin:
+    description: Loss accepted (empty = the calibrated noise band, or 0.05)
+    required: false
+    default: ""
+  python-version:
+    description: Python to run on
+    required: false
+    default: "3.12"
+  install:
+    description: pip arguments that install Zanii Evolve
+    required: false
+    default: "-e ."
+outputs:
+  statement:
+    description: Path of the signed regression statement
+    value: ${{ steps.gate.outputs.statement }}
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+    - name: Install Zanii Evolve
+      shell: bash
+      run: python -m pip install ${{ inputs.install }}
+    - name: Regression gate
+      id: gate
+      shell: bash
+      env:
+        ZE_DOMAIN: ${{ inputs.domain }}
+        ZE_BASE: ${{ inputs.base }}
+        ZE_HEAD: ${{ inputs.head }}
+        ZE_SETS: ${{ inputs.sets }}
+        ZE_K: ${{ inputs.k }}
+        ZE_MARGIN: ${{ inputs.margin }}
+      run: |
+        out="$RUNNER_TEMP/zanii-evolve-regression.json"
+        md="$RUNNER_TEMP/zanii-evolve-regression.md"
+        extra=()
+        [ -n "$ZE_K" ] && extra+=(--k "$ZE_K")
+        [ -n "$ZE_MARGIN" ] && extra+=(--margin "$ZE_MARGIN")
+        set +e
+        python zanii_evolve.py --domain "$ZE_DOMAIN" regress --base "$ZE_BASE" \
+          --head "$ZE_HEAD" --sets "$ZE_SETS" --out "$out" --markdown "$md" "${extra[@]}"
+        rc=$?
+        set -e
+        [ -f "$md" ] && cat "$md" >> "$GITHUB_STEP_SUMMARY"
+        echo "statement=$out" >> "$GITHUB_OUTPUT"
+        exit $rc

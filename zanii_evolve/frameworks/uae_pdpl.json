@@ -1,0 +1,14 @@
+{
+ "id": "uae_pdpl",
+ "title": "UAE Personal Data Protection Law, Federal Decree-Law No. 45 of 2021",
+ "version": "2021",
+ "scope": "PDPL topics that the custody chain and deletion attestations evidence, described by topic (not article numbers). Free-zone regimes (DIFC, ADGM) have their own laws; map them separately.",
+ "disclaimer": "Evidence mapping, not legal advice; confirm with counsel.",
+ "controls": [
+  {"ref": "Lawful processing", "title": "Lawful processing and purpose limitation", "evidence": ["custody", "constitution"]},
+  {"ref": "Data subject rights", "title": "Data subject rights, including erasure", "evidence": ["data_forget"]},
+  {"ref": "Cross-border transfer", "title": "Cross-border transfer of personal data", "evidence": ["custody"]},
+  {"ref": "Security", "title": "Security of processing", "evidence": ["receipts_chain", "redteam"]},
+  {"ref": "Breach notification", "title": "Breach detection and notification (detection evidence only; notification is organisational)", "evidence": ["custody"]}
+ ]
+}

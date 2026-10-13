@@ -1,0 +1,17 @@
+{
+ "id": "uae_ai_charter",
+ "title": "UAE Charter for the Development and Use of Artificial Intelligence",
+ "version": "2024",
+ "scope": "The Charter's principles that technical evidence can support, by name. Principles about society, awareness and coexistence have no technical evidence here and are left to the organisation.",
+ "disclaimer": "Evidence mapping, not legal advice; confirm with counsel.",
+ "controls": [
+  {"ref": "Safety", "title": "Safety", "evidence": ["redteam", "regression", "certificate"]},
+  {"ref": "Algorithmic bias", "title": "Algorithmic bias", "evidence": ["heldout", "judge_kappa", "scorecard"]},
+  {"ref": "Data privacy", "title": "Data privacy", "evidence": ["custody", "data_forget"]},
+  {"ref": "Transparency", "title": "Transparency", "evidence": ["certificate", "constitution"]},
+  {"ref": "Human oversight", "title": "Human oversight", "evidence": ["approvals", "rollout_decisions"]},
+  {"ref": "Governance and accountability", "title": "Governance and accountability", "evidence": ["receipts_chain", "statements_chain"]},
+  {"ref": "Technological excellence", "title": "Technological excellence", "evidence": ["certificate", "heldout", "live_confirmation"]},
+  {"ref": "Commitment to treaties and applicable laws", "title": "Commitment to treaties and applicable laws", "evidence": ["constitution"]}
+ ]
+}

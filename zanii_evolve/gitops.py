@@ -66,7 +66,12 @@ def rev(cwd, ref: str) -> str:
 
 
 def tree_hash(cwd, ref: str, path: str) -> str:
-    return git(cwd, "rev-parse", f"{ref}:{path}").stdout.strip()[:12]
+    """The git tree of `path` at `ref` (12 hex). Git paths use '/', also on Windows:
+    a backslash path fails, and rev-parse echoes its argument instead of a hash."""
+    r = git(cwd, "rev-parse", f"{ref}:{str(path).replace(chr(92), '/')}")
+    if r.returncode != 0:
+        raise RuntimeError(f"no tree for {path} at {ref}: {r.stderr.strip()}")
+    return r.stdout.strip()[:12]
 
 
 def branch_exists(cwd, name: str) -> bool:

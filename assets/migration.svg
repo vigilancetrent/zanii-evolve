@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="360" viewBox="0 0 1200 360" role="img" aria-labelledby="t d">
+  <title id="t">How a migration or a change is judged</title>
+  <desc id="d">Model B is compared with model A on the same commit, judge and tasks. The task-by-task difference gets a 95% range from resampling tasks. A move is safe only when the low end of the range stays above minus the margin, which defaults to the noise band. Three examples: a range inside the margin is non-inferior and safe; a range entirely below it is worse and blocked; a range that crosses it is unclear and not certified.</desc>
+  <defs>
+    <style>
+      text { font-family: Inter, "Segoe UI", Helvetica, Arial, sans-serif; }
+      .lbl { font-size: 12px; font-weight: 600; fill: #64748B; letter-spacing: 1px; }
+      .h { font-size: 15px; font-weight: 600; fill: #0F172A; }
+      .s { font-size: 13px; fill: #475569; }
+      .ax { font-size: 12px; fill: #64748B; }
+      .ok { fill: #0F766E; } .bad { fill: #B91C1C; } .mid { fill: #475569; }
+    </style>
+  </defs>
+  <rect width="1200" height="360" rx="18" fill="#F8FAFC"/>
+
+  <text x="40" y="50" class="lbl">THE RULE</text>
+  <text x="40" y="86" class="h">Same commit, same judge, same tasks</text>
+  <text x="40" y="110" class="s">Only the model (or the harness) changes.</text>
+  <text x="40" y="150" class="h">Task by task: B − A</text>
+  <text x="40" y="174" class="s">95% range by resampling tasks, seeded,</text>
+  <text x="40" y="194" class="s">so the same runs always give the same verdict.</text>
+  <text x="40" y="234" class="h">Safe only if the low end ≥ −margin</text>
+  <text x="40" y="258" class="s">The margin defaults to the noise band: a drop</text>
+  <text x="40" y="278" class="s">you could not tell apart from re-running A.</text>
+  <text x="40" y="318" class="s">Fewer than 5 shared tasks: no verdict at all.</text>
+
+  <text x="560" y="50" class="lbl">B − A ON HELD-OUT TASKS</text>
+  <!-- zones: x = 560 + (d + 0.15) / 0.25 * 580 -->
+  <rect x="560" y="70" width="232" height="230" fill="#FEF2F2"/>
+  <rect x="792" y="70" width="116" height="230" fill="#F0FDFA"/>
+  <text x="676" y="88" text-anchor="middle" class="ax">a loss you did not accept</text>
+  <text x="850" y="88" text-anchor="middle" class="ax">within the margin</text>
+  <line x1="908" y1="70" x2="908" y2="300" stroke="#94A3B8" stroke-width="1.5" stroke-dasharray="4 4"/>
+  <line x1="792" y1="70" x2="792" y2="300" stroke="#14B8A6" stroke-width="1.5"/>
+
+  <!-- safe -->
+  <text x="574" y="124" class="h ok">non-inferior · SAFE to migrate</text>
+  <line x1="862" y1="146" x2="977" y2="146" stroke="#0F766E" stroke-width="6" stroke-linecap="round"/>
+  <circle cx="920" cy="146" r="7" fill="#0F766E"/>
+  <!-- worse -->
+  <text x="574" y="186" class="h bad">worse · BLOCKED</text>
+  <line x1="629" y1="208" x2="769" y2="208" stroke="#B91C1C" stroke-width="6" stroke-linecap="round"/>
+  <circle cx="699" cy="208" r="7" fill="#B91C1C"/>
+  <!-- unclear -->
+  <text x="574" y="248" class="h mid">unclear · not certified</text>
+  <line x1="722" y1="270" x2="1000" y2="270" stroke="#475569" stroke-width="6" stroke-linecap="round"/>
+  <circle cx="862" cy="270" r="7" fill="#475569"/>
+
+  <line x1="560" y1="300" x2="1140" y2="300" stroke="#94A3B8" stroke-width="1.5"/>
+  <text x="560" y="322" class="ax">−0.15</text>
+  <text x="792" y="322" text-anchor="middle" class="ax">−margin</text>
+  <text x="908" y="322" text-anchor="middle" class="ax">0</text>
+  <text x="1140" y="322" text-anchor="end" class="ax">+0.10</text>
+</svg>
