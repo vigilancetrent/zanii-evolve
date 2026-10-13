@@ -797,6 +797,8 @@ def main():
     p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--port", type=int, default=8765)
     args = ap.parse_args()
+    # harnesses run with cwd = their worktree: a relative --runs would be resolved twice
+    args.runs = os.path.abspath(args.runs)
     rc = products.dispatch(args, ROOT)
     if rc is not None:
         sys.exit(rc)

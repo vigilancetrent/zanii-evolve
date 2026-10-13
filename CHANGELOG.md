@@ -35,6 +35,8 @@ Twelve products on one evaluation core; every result is a signed statement.
   raters and the labels' sha256.
 - **`confirm-live`**: rollout outcomes plus Blackbox growth, signed `confirmed`,
   `too_early` or `regressed`.
+- **Checks take `exclude`**: a regex of lines the reader never sees (a tool-call marker), removed before the check runs.
+- **Fix:** a relative `--runs` path was resolved twice once a harness ran in its worktree, so no trial ran.
 - **Fix:** `gitops.tree_hash` got Windows backslash paths, so `harness_tree` held git's
   echoed argument instead of a hash and the harness-tamper check could not fail.
 

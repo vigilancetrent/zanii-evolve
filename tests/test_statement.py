@@ -99,3 +99,10 @@ def test_incident_split_loads(tmp_path):
     p.write_text('{"id": "i1", "split": "incident", "brief": "b", "rubric": '
                  '[{"criterion": "c"}]}\n', encoding="utf-8")
     assert load_tasks(p)[0]["split"] == "incident"
+
+
+def test_check_exclude_drops_unseen_lines():
+    reply = "Thanks, I've passed it on.\n[tell_the_owner] customer wants a refund for order 77"
+    words = {"type": "max_words", "value": 5}
+    assert not run_check(words, reply)[0]
+    assert run_check({**words, "exclude": r"^\[tell_the_owner\].*$"}, reply)[0]

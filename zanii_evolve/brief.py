@@ -106,6 +106,8 @@ def _field(text: str, name: str) -> str | None:
 
 
 def run_check(check: dict, text: str) -> tuple[bool, str]:
+    if check.get("exclude"):              # lines the reader never sees, e.g. a tool-call marker
+        text = re.sub(check["exclude"], "", text, flags=re.M)
     t, low = check["type"], text.lower()
     if t == "max_words":
         n = _words(text)
